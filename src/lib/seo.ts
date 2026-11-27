@@ -17,18 +17,27 @@ function upsertMeta(attribute: 'name' | 'property', key: string, content: string
   element.content = content
 }
 
+function setOptionalMeta(attribute: 'name' | 'property', key: string, content?: string | null) {
+  const value = content?.trim()
+  if (value) {
+    upsertMeta(attribute, key, value)
+    return
+  }
+  document.head.querySelector(`meta[${attribute}="${key}"]`)?.remove()
+}
+
 export function setPageSeo(seo: PageSeo) {
   document.title = seo.title
-  if (seo.description) upsertMeta('name', 'description', seo.description)
-  if (seo.keywords?.length) upsertMeta('name', 'keywords', seo.keywords.join(', '))
+  setOptionalMeta('name', 'description', seo.description)
+  setOptionalMeta('name', 'keywords', seo.keywords?.length ? seo.keywords.join(', ') : null)
   upsertMeta('property', 'og:type', seo.type === 'product' ? 'product' : 'website')
   upsertMeta('property', 'og:title', seo.title)
-  if (seo.description) upsertMeta('property', 'og:description', seo.description)
-  if (seo.imageUrl) upsertMeta('property', 'og:image', seo.imageUrl)
+  setOptionalMeta('property', 'og:description', seo.description)
+  setOptionalMeta('property', 'og:image', seo.imageUrl)
   upsertMeta('name', 'twitter:card', seo.imageUrl ? 'summary_large_image' : 'summary')
   upsertMeta('name', 'twitter:title', seo.title)
-  if (seo.description) upsertMeta('name', 'twitter:description', seo.description)
-  if (seo.imageUrl) upsertMeta('name', 'twitter:image', seo.imageUrl)
+  setOptionalMeta('name', 'twitter:description', seo.description)
+  setOptionalMeta('name', 'twitter:image', seo.imageUrl)
 
   let canonical = document.head.querySelector<HTMLLinkElement>('link[rel="canonical"]')
   if (seo.canonicalUrl) {

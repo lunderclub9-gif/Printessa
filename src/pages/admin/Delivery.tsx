@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAdminConfirm } from '@/components/admin/AdminConfirmProvider'
 import { Loader2, Plus, Trash2, Truck } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
@@ -41,6 +41,8 @@ export default function AdminDelivery() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const requestSequence = useRef(0)
 
   const [form, setForm] = useState({ ...emptyRate })
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -54,52 +56,69 @@ export default function AdminDelivery() {
   const [previewError, setPreviewError] = useState<string | null>(null)
 
   useEffect(() => {
-    supabase
-      .from('wilayas')
-      .select('code, name_fr, is_active')
-      .order('code')
-      .then(({ data }) => {
+    let active = true
+    const loadWilayas = async () => {
+      try {
+        const { data, error: queryError } = await supabase
+          .from('wilayas')
+          .select('code, name_fr, is_active')
+          .order('code')
+        if (queryError) throw queryError
+        if (!active) return
         const list = (data as Wilaya[]) ?? []
         setWilayas(list)
         setWilayaCode((current) => current || String(list[0]?.code ?? ''))
-        setLoading(false)
-      })
+      } catch {
+        if (active) setError('Impossible de charger les wilayas. Vérifiez la connexion puis réessayez.')
+      } finally {
+        if (active) setLoading(false)
+      }
+    }
+    void loadWilayas()
+    return () => {
+      active = false
+    }
   }, [])
 
-  const loadRates = useCallback(async (code: number) => {
-    const { data } = await supabase
-      .from('delivery_rates')
-      .select('*')
-      .eq('wilaya_code', code)
-      .order('method')
-    setRates((data as Rate[]) ?? [])
-  }, [])
-
-  const loadPoints = useCallback(async (code: number) => {
-    const { data } = await supabase
-      .from('pickup_points')
-      .select('*')
-      .eq('wilaya_code', code)
-      .order('name')
-    setPoints((data as PickupPoint[]) ?? [])
+  const loadWilayaData = useCallback(async (code: number) => {
+    const requestId = ++requestSequence.current
+    try {
+      const [communeResult, rateResult, pointResult] = await Promise.all([
+        supabase.from('communes').select('id, name_fr').eq('wilaya_code', code).eq('is_active', true).order('name_fr'),
+        supabase.from('delivery_rates').select('*').eq('wilaya_code', code).order('method'),
+        supabase.from('pickup_points').select('*').eq('wilaya_code', code).order('name'),
+      ])
+      const queryError = communeResult.error || rateResult.error || pointResult.error
+      if (queryError) throw queryError
+      if (requestId !== requestSequence.current) return
+      setCommunes((communeResult.data as Commune[]) ?? [])
+      setRates((rateResult.data as Rate[]) ?? [])
+      setPoints((pointResult.data as PickupPoint[]) ?? [])
+      setError(null)
+    } catch {
+      if (requestId !== requestSequence.current) return
+      setCommunes([])
+      setRates([])
+      setPoints([])
+      setError('Impossible de charger les communes, tarifs et points relais de cette wilaya.')
+    }
   }, [])
 
   useEffect(() => {
     setPreview(null)
     setPreviewError(null)
     setPreviewCommune('')
-    if (!wilayaCode) return
-    const code = Number(wilayaCode)
-    supabase
-      .from('communes')
-      .select('id, name_fr')
-      .eq('wilaya_code', code)
-      .eq('is_active', true)
-      .order('name_fr')
-      .then(({ data }) => setCommunes((data as Commune[]) ?? []))
-    loadRates(code)
-    loadPoints(code)
-  }, [wilayaCode, loadRates, loadPoints])
+    if (!wilayaCode) {
+      setCommunes([])
+      setRates([])
+      setPoints([])
+      return
+    }
+    void loadWilayaData(Number(wilayaCode))
+    return () => {
+      requestSequence.current += 1
+    }
+  }, [wilayaCode, loadWilayaData])
 
   const resetForm = () => {
     setForm({ ...emptyRate })
@@ -110,8 +129,18 @@ export default function AdminDelivery() {
     event.preventDefault()
     setError(null)
     const price = Number(form.price_dzd)
-    if (!Number.isFinite(price) || price < 0) {
+    const minDays = form.days_min === '' ? null : Number(form.days_min)
+    const maxDays = form.days_max === '' ? null : Number(form.days_max)
+    if (!Number.isSafeInteger(price) || price < 0) {
       setError('Le prix doit être un nombre entier de dinars positif.')
+      return
+    }
+    if (
+      (minDays !== null && (!Number.isSafeInteger(minDays) || minDays < 0)) ||
+      (maxDays !== null && (!Number.isSafeInteger(maxDays) || maxDays < 0)) ||
+      (minDays !== null && maxDays !== null && maxDays < minDays)
+    ) {
+      setError('Vérifiez les délais : nombres entiers positifs et délai maximum supérieur ou égal au minimum.')
       return
     }
     if (form.scope === 'commune' && !form.commune_id) {
@@ -126,26 +155,31 @@ export default function AdminDelivery() {
       method: form.method,
       price_dzd: Math.round(price),
       carrier: form.carrier.trim() || null,
-      estimated_days_min: form.days_min ? Number(form.days_min) : null,
-      estimated_days_max: form.days_max ? Number(form.days_max) : null,
+      estimated_days_min: minDays,
+      estimated_days_max: maxDays,
       is_active: form.is_active,
     }
 
-    const { error: writeError } = editingId
-      ? await supabase.from('delivery_rates').update(payload).eq('id', editingId)
-      : await supabase.from('delivery_rates').insert(payload)
+    try {
+      const { error: writeError } = editingId
+        ? await supabase.from('delivery_rates').update(payload).eq('id', editingId)
+        : await supabase.from('delivery_rates').insert(payload)
 
-    setSaving(false)
-    if (writeError) {
-      setError(
-        writeError.code === '23505'
-          ? 'Un tarif actif existe déjà pour ce mode et cette destination.'
-          : "Impossible d'enregistrer ce tarif."
-      )
-      return
+      if (writeError) {
+        setError(
+          writeError.code === '23505'
+            ? 'Un tarif actif existe déjà pour ce mode et cette destination.'
+            : "Impossible d'enregistrer ce tarif."
+        )
+        return
+      }
+      resetForm()
+      await loadWilayaData(Number(wilayaCode))
+    } catch {
+      setError("Connexion interrompue. Vérifiez si le tarif a été enregistré avant de réessayer.")
+    } finally {
+      setSaving(false)
     }
-    resetForm()
-    await loadRates(Number(wilayaCode))
   }
 
   const editRate = (rate: Rate) => {
@@ -169,7 +203,7 @@ export default function AdminDelivery() {
       setError('Impossible de supprimer ce tarif.')
       return
     }
-    await loadRates(Number(wilayaCode))
+    await loadWilayaData(Number(wilayaCode))
   }
 
   const toggleWilaya = async (wilaya: Wilaya) => {
@@ -202,34 +236,51 @@ export default function AdminDelivery() {
     setPointName('')
     setPointAddress('')
     setPointCommune('')
-    await loadPoints(Number(wilayaCode))
+    await loadWilayaData(Number(wilayaCode))
   }
 
-  const deletePoint = async (id: string) => {
-    const { error: deleteError } = await supabase.from('pickup_points').delete().eq('id', id)
-    if (deleteError) {
-      setError('Impossible de supprimer ce point relais.')
-      return
+  const deletePoint = async (point: PickupPoint) => {
+    if (!(await confirmAction({
+      title: 'Supprimer ce point relais ?',
+      description: `Le point relais « ${point.name} » ne sera plus proposé aux clients. Les commandes déjà enregistrées conservent leur historique.`,
+      confirmLabel: 'Supprimer le point relais',
+      tone: 'danger',
+    }))) return
+    try {
+      const { error: deleteError } = await supabase.from('pickup_points').delete().eq('id', point.id)
+      if (deleteError) {
+        setError('Impossible de supprimer ce point relais.')
+        return
+      }
+      await loadWilayaData(Number(wilayaCode))
+    } catch {
+      setError('Connexion interrompue. Vérifiez si le point relais a été supprimé avant de réessayer.')
     }
-    await loadPoints(Number(wilayaCode))
   }
 
   const runPreview = async () => {
     setPreview(null)
     setPreviewError(null)
-    const { data, error: rpcError } = await supabase.rpc('quote_delivery', {
-      p_wilaya_code: Number(wilayaCode),
-      p_commune_id: previewCommune || null,
-      p_method: previewMethod,
-    })
-    const row = Array.isArray(data) ? (data[0] as DeliveryQuote | undefined) : undefined
-    if (rpcError || !row) {
-      setPreviewError(
-        orderErrorMessage(rpcError?.message, 'Aucun tarif actif : la livraison sera indisponible.')
-      )
-      return
+    setPreviewLoading(true)
+    try {
+      const { data, error: rpcError } = await supabase.rpc('quote_delivery', {
+        p_wilaya_code: Number(wilayaCode),
+        p_commune_id: previewCommune || null,
+        p_method: previewMethod,
+      })
+      const row = Array.isArray(data) ? (data[0] as DeliveryQuote | undefined) : undefined
+      if (rpcError || !row) {
+        setPreviewError(
+          orderErrorMessage(rpcError?.message, 'Aucun tarif actif : la livraison sera indisponible.')
+        )
+        return
+      }
+      setPreview(row)
+    } catch {
+      setPreviewError('Connexion interrompue pendant le calcul du tarif.')
+    } finally {
+      setPreviewLoading(false)
     }
-    setPreview(row)
   }
 
   if (loading) {
@@ -260,7 +311,7 @@ export default function AdminDelivery() {
       <div className="mb-6 grid gap-4 sm:grid-cols-2">
         <label className="block">
           <span className="label-text">Wilaya</span>
-          <select value={wilayaCode} onChange={(event) => setWilayaCode(event.target.value)} className="input-field">
+          <select value={wilayaCode} onChange={(event) => setWilayaCode(event.target.value)} className="input-field" disabled={wilayas.length === 0}>
             {wilayas.map((wilaya) => (
               <option key={wilaya.code} value={wilaya.code}>
                 {String(wilaya.code).padStart(2, '0')} — {wilaya.name_fr}
@@ -444,7 +495,7 @@ export default function AdminDelivery() {
                     </div>
                     <button
                       type="button"
-                      onClick={() => deletePoint(point.id)}
+                      onClick={() => deletePoint(point)}
                       className="text-charcoal-400 hover:text-brand-red"
                       aria-label="Supprimer le point relais"
                     >
@@ -512,7 +563,8 @@ export default function AdminDelivery() {
                 <option value="stopdesk">Point relais</option>
               </select>
             </div>
-            <button type="button" onClick={runPreview} className="btn-secondary mt-3 w-full">
+            <button type="button" onClick={runPreview} disabled={previewLoading || !wilayaCode} className="btn-secondary mt-3 w-full">
+              {previewLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
               Vérifier le tarif appliqué
             </button>
             <div className="mt-3 text-sm">

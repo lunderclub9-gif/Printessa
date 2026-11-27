@@ -427,7 +427,7 @@ export default function AdminProductEdit() {
     if (!missing.length) { setError('Ces variantes existent déjà.'); return }
     const price = variantPrice.trim() ? Math.round(Number(variantPrice)) : null
     const stock = Number(variantStock)
-    if ((price !== null && (!Number.isFinite(price) || price < 0)) || !Number.isFinite(stock) || stock < 0) { setError('Vérifiez le prix et le stock.'); return }
+    if ((price !== null && (!Number.isSafeInteger(price) || price < 0)) || !Number.isSafeInteger(stock) || stock < 0) { setError('Vérifiez le prix et le stock : nombres entiers positifs ou nuls.'); return }
     setCreatingVariants(true); setError(null)
     const created: string[] = []
     try {
@@ -439,8 +439,23 @@ export default function AdminProductEdit() {
         if (linkError) throw linkError
       }
       await loadVariants(id); setSelectedColorIds([]); setVariantPrice(''); setVariantStock('0')
-    } catch (err) { if (created.length) await supabase.from('product_variants').delete().in('id', created); setError(err instanceof Error ? err.message : 'Création impossible.'); await loadVariants(id) }
-    finally { setCreatingVariants(false) }
+    } catch (err) {
+      let cleanupFailed = false
+      if (created.length) {
+        try {
+          const { error: cleanupError } = await supabase.from('product_variants').delete().in('id', created)
+          cleanupFailed = Boolean(cleanupError)
+        } catch {
+          cleanupFailed = true
+        }
+      }
+      setError(cleanupFailed
+        ? 'La création des variantes a échoué et leur nettoyage automatique aussi. Rechargez la liste et vérifiez les variantes.'
+        : err instanceof Error ? err.message : 'Création impossible.')
+      await loadVariants(id)
+    } finally {
+      setCreatingVariants(false)
+    }
   }
 
   const deleteOptionValue = async (valueId: string) => {
@@ -551,11 +566,11 @@ export default function AdminProductEdit() {
 
     const price = variantPrice.trim() ? Math.round(Number(variantPrice)) : null
     const stock = Number(variantStock)
-    if (price !== null && (!Number.isFinite(price) || price < 0)) {
+    if (price !== null && (!Number.isSafeInteger(price) || price < 0)) {
       setError('Le prix des variantes doit être un nombre positif.')
       return
     }
-    if (!Number.isFinite(stock) || stock < 0) {
+    if (!Number.isSafeInteger(stock) || stock < 0) {
       setError('Le stock initial doit être un nombre positif ou nul.')
       return
     }
@@ -588,14 +603,20 @@ export default function AdminProductEdit() {
       setVariantPrice('')
       setVariantStock('0')
     } catch (err) {
+      let cleanupFailed = false
       if (createdIds.length > 0) {
-        const { error: cleanupError } = await supabase.from('product_variants').delete().in('id', createdIds)
-        setError(cleanupError
-          ? 'Une erreur est survenue et certaines variantes peuvent nécessiter une vérification dans l’administration.'
-          : 'La création a échoué. Les variantes créées pendant cette opération ont été annulées.')
-      } else {
-        setError(err instanceof Error ? err.message : 'Impossible de créer les variantes.')
+        try {
+          const { error: cleanupError } = await supabase.from('product_variants').delete().in('id', createdIds)
+          cleanupFailed = Boolean(cleanupError)
+        } catch {
+          cleanupFailed = true
+        }
       }
+      setError(cleanupFailed
+        ? 'La création a échoué et le nettoyage automatique aussi. Vérifiez les variantes avant de recommencer.'
+        : createdIds.length > 0
+          ? 'La création a échoué. Les variantes créées pendant cette opération ont été annulées.'
+          : err instanceof Error ? err.message : 'Impossible de créer les variantes.')
       await loadVariants(id)
     } finally {
       setCreatingVariants(false)

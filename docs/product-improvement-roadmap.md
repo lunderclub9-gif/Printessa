@@ -29,7 +29,8 @@ Printessa should make three journeys feel effortless:
 ## Priority 1 — improve the customer buying experience
 
 - Make product options and variants unmistakable: selected values, unavailable combinations,
-  price changes, stock and made-to-order status should be visible before adding to cart.
+  price changes, stock and made-to-order status should be visible before adding to cart. Product
+  cards now reflect availability from active variants instead of relying only on base-product stock.
 - Legacy color choices now stay distinct in the cart and are carried into the order note so the
   customer and owner can see them. The durable target is a dedicated validated order-item option
   snapshot through a forward migration after production migration history is reconciled.
@@ -73,7 +74,8 @@ Printessa should make three journeys feel effortless:
 ## Priority 4 — trust, discovery and performance
 
 - Validate SEO title, description, canonical URL, sitemap and structured product data for published
-  products and categories.
+  products and categories. Route changes now reset stale dynamic metadata; continue validating
+  generated HTML and social previews against a live staging build.
 - Improve image alt text, responsive image sizes, lazy loading and 3D viewer loading behavior.
 - Check keyboard navigation, focus states, form labels, contrast and reduced-motion preferences.
 - Add clear store policies: production lead times, delivery methods, returns/cancellations and COD.

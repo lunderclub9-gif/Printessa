@@ -1,0 +1,49 @@
+name: Dependency update candidate
+
+on:
+  push:
+    branches: ['maintenance/consolidated-migrations']
+    paths:
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/dependency-candidate.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  candidate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Resolve non-breaking security updates
+        run: npm audit fix --package-lock-only
+      - name: Install updated lockfile
+        run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Unit tests
+        run: npm test
+      - name: Production build
+        run: npm run build
+      - name: Summarize remaining advisories
+        if: always()
+        run: |
+          npm audit --json > /tmp/npm-audit.json || true
+          node -e "const a=require('/tmp/npm-audit.json'); console.log('Remaining dependency advisories:', JSON.stringify(a.metadata?.vulnerabilities || {})); for (const [name,v] of Object.entries(a.vulnerabilities || {})) console.log(name + ' | ' + v.severity + ' | ' + v.range);"
+      - name: Upload validated lockfile candidate
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: printessa-security-updated-lockfile
+          path: package-lock.json
+          if-no-files-found: error
+          retention-days: 7

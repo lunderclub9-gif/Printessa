@@ -42,6 +42,7 @@ function readStoredCart(): CartItem[] {
     /* stockage local indisponible (mode privé) : panier vide */
     return []
   }
+}
 
 export function CartProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<CartItem[]>(readStoredCart)

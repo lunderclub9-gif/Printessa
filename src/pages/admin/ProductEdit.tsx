@@ -11,7 +11,8 @@ import {
   type ProductVariant,
 } from '@/lib/supabase'
 import { slugify, generateSku } from '@/lib/format'
-import { validateImage, validateModel } from '@/lib/media'
+import { storageObjectPath, validateImage, validateModel } from '@/lib/media'
+import { buildVariantCombinations, variantCombinationKey } from '@/lib/product-variants'
 import posthog, { isPostHogEnabled } from '@/lib/posthog'
 
 export default function AdminProductEdit() {
@@ -195,7 +196,7 @@ export default function AdminProductEdit() {
       if (upErr) throw new Error('Le stockage a refusé le modèle (format ou taille).')
 
       const { data: urlData } = supabase.storage.from('product-models').getPublicUrl(path)
-      const previousPath = form.model_url.split('/product-models/')[1]
+      const previousPath = storageObjectPath(form.model_url, 'product-models')
       setForm((prev) => ({ ...prev, model_url: urlData.publicUrl }))
       if (isPostHogEnabled) posthog.capture('product_model_uploaded', { product_id: id })
 
@@ -233,15 +234,6 @@ export default function AdminProductEdit() {
     if (isPostHogEnabled) posthog.capture('product_primary_image_set', { product_id: id, image_id: imageId })
   }
 
-  const storagePath = (url: string, bucket: 'product-images' | 'product-models') => {
-    try {
-      const parsed = new URL(url)
-      const marker = `/${bucket}/`
-      const index = parsed.pathname.indexOf(marker)
-      return index >= 0 ? decodeURIComponent(parsed.pathname.slice(index + marker.length)) : null
-    } catch { return null }
-  }
-
   const deleteImage = async (imageId: string, imageUrl: string) => {
     if (!id || !(await confirmAction({ title: 'Supprimer cette photo ?', description: 'La photo sera retirée de la galerie du produit.', confirmLabel: 'Supprimer la photo', tone: 'danger' }))) return
     const image = images.find((item) => item.id === imageId)
@@ -253,7 +245,7 @@ export default function AdminProductEdit() {
       const { error: primaryError } = await supabase.from('product_images').update({ is_primary: true }).eq('id', remaining[0].id).eq('product_id', id)
       if (!primaryError) setImages((current) => current.map((item) => ({ ...item, is_primary: item.id === remaining[0].id })))
     }
-    const path = storagePath(imageUrl, 'product-images')
+    const path = storageObjectPath(imageUrl, 'product-images')
     if (path && path.startsWith(`${id}/`)) {
       const { data: references, error: referenceError } = await supabase.from('product_images').select('id').eq('image_url', imageUrl).limit(1)
       if (referenceError) setError('La photo a été retirée du produit, mais la vérification des références du fichier a échoué; le fichier a été conservé par sécurité.')
@@ -272,7 +264,7 @@ export default function AdminProductEdit() {
     if (updateError) { setError('Impossible de retirer le modèle 3D du produit.'); return }
     setForm((current) => ({ ...current, model_url: '' }))
     setOriginalModelUrl('')
-    const path = storagePath(previousUrl, 'product-models')
+    const path = storageObjectPath(previousUrl, 'product-models')
     if (path && path.startsWith(`${id}/`)) {
       const { data: references, error: referenceError } = await supabase.from('products').select('id').eq('model_url', previousUrl).neq('id', id).limit(1)
       if (referenceError) setError('Le modèle a été retiré du produit, mais le contrôle des références a échoué; le fichier a été conservé par sécurité.')
@@ -360,8 +352,8 @@ export default function AdminProductEdit() {
     const shape = shapeOption?.values?.find((v) => v.id === selectedShapeId)
     const chosen = (colorOption?.values ?? []).filter((v) => selectedColorIds.includes(v.id) && v.is_active)
     if (!shape || !chosen.length) { setError('Choisissez une forme et au moins une couleur.'); return }
-    const existing = new Set(variants.map((v) => (v.values ?? []).map((x) => x.option_value_id).sort().join(',')))
-    const missing = chosen.filter((color) => !existing.has([shape.id, color.id].sort().join(',')))
+    const existing = new Set(variants.map((variant) => variantCombinationKey((variant.values ?? []).map((item) => item.option_value_id))))
+    const missing = chosen.filter((color) => !existing.has(variantCombinationKey([shape.id, color.id])))
     if (!missing.length) { setError('Ces variantes existent déjà.'); return }
     const price = variantPrice.trim() ? Math.round(Number(variantPrice)) : null
     const stock = Number(variantStock)
@@ -451,41 +443,23 @@ export default function AdminProductEdit() {
 
   const createAllVariantCombinations = async () => {
     if (!id || options.length === 0) return
-    const optionValues = options.map((option) => ({
-      option,
-      values: (option.values ?? []).filter((value) => value.is_active),
-    }))
-    if (optionValues.some((item) => item.values.length === 0)) {
+    const result = buildVariantCombinations(
+      options.map((option) => ({ id: option.id, values: option.values ?? [] }))
+    )
+    if (result.reason === 'empty-options') return
+    if (result.reason === 'missing-values') {
       setError('Ajoutez au moins une valeur active pour chaque option.')
       return
     }
-
-    const combinations: { valueIds: string[]; label: string }[] = []
-    const build = (index: number, selected: { optionId: string; valueId: string; label: string }[]) => {
-      if (index === optionValues.length) {
-        combinations.push({
-          valueIds: selected.map((item) => item.valueId),
-          label: selected.map((item) => item.label).join(' / '),
-        })
-        return
-      }
-      const current = optionValues[index]
-      current.values.forEach((value) => build(index + 1, [
-        ...selected,
-        { optionId: current.option.id, valueId: value.id, label: value.value },
-      ]))
-    }
-    build(0, [])
-
-    if (combinations.length > 100) {
+    if (result.reason === 'limit-exceeded') {
       setError('Cette configuration crée plus de 100 variantes. Réduisez les valeurs ou créez les variantes nécessaires manuellement.')
       return
     }
 
     const existing = new Set(variants.map((variant) =>
-      (variant.values ?? []).map((item) => item.option_value_id).sort().join(',')
+      variantCombinationKey((variant.values ?? []).map((item) => item.option_value_id))
     ))
-    const missing = combinations.filter((item) => !existing.has([...item.valueIds].sort().join(',')))
+    const missing = result.combinations.filter((item) => !existing.has(variantCombinationKey(item.valueIds)))
     if (missing.length === 0) {
       setError('Toutes les combinaisons existent déjà.')
       return
@@ -548,13 +522,10 @@ export default function AdminProductEdit() {
     if (!id || !combinationComplete) return
     setError(null)
 
-    const signature = [...selectedValueIds].sort().join(',')
+    const signature = variantCombinationKey(selectedValueIds)
     const duplicate = variants.some(
       (variant) =>
-        (variant.values ?? [])
-          .map((item) => item.option_value_id)
-          .sort()
-          .join(',') === signature
+        variantCombinationKey((variant.values ?? []).map((item) => item.option_value_id)) === signature
     )
     if (duplicate) {
       setError('Cette combinaison existe déjà.')
@@ -725,7 +696,7 @@ export default function AdminProductEdit() {
         const { error: upErr } = await supabase.from('products').update(savePayload).eq('id', id)
         if (upErr) throw upErr
         if (originalModelUrl && originalModelUrl !== payload.model_url) {
-          const previousPath = storagePath(originalModelUrl, 'product-models')
+          const previousPath = storageObjectPath(originalModelUrl, 'product-models')
           if (previousPath && previousPath.startsWith(`${id}/`)) {
             const { data: references, error: referenceError } = await supabase.from('products').select('id').eq('model_url', originalModelUrl).neq('id', id).limit(1)
             if (!referenceError && !references?.length) {

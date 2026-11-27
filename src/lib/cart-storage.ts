@@ -15,6 +15,10 @@ const MAX_QUANTITY = 10
 export const MAX_ORDER_LINES = 20
 const MAX_CART_LINES = 50
 
+export function canAddCartLine(items: Pick<CartItem, 'key'>[], key: string): boolean {
+  return items.some((item) => item.key === key) || items.length < MAX_ORDER_LINES
+}
+
 export function cartLineKey(productId: string, variantId: string | null, selectedColor: string | null): string {
   const base = `${productId}::${variantId ?? 'base'}`
   return selectedColor ? `${base}::color:${selectedColor.trim().toLocaleLowerCase()}` : base

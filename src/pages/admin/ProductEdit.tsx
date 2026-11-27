@@ -338,33 +338,41 @@ export default function AdminProductEdit() {
     const name = newOptionName.trim()
     if (!name) return
     setError(null)
-    const { data, error: insertError } = await supabase
-      .from('product_options')
-      .insert({ product_id: id, name, sort_order: options.length })
-      .select('*')
-      .single()
-    if (insertError || !data) {
-      setError("Impossible d'ajouter cette option (un nom identique existe peut-être déjà).")
-      return
+    try {
+      const { data, error: insertError } = await supabase
+        .from('product_options')
+        .insert({ product_id: id, name, sort_order: options.length })
+        .select('*')
+        .single()
+      if (insertError || !data) {
+        setError("Impossible d'ajouter cette option (un nom identique existe peut-être déjà).")
+        return
+      }
+      setOptions((prev) => [...prev, { ...(data as ProductOption), values: [] }])
+      setNewOptionName('')
+    } catch {
+      setError("Connexion interrompue. Vérifiez si l'option a été ajoutée avant de réessayer.")
     }
-    setOptions((prev) => [...prev, { ...(data as ProductOption), values: [] }])
-    setNewOptionName('')
   }
 
   const deleteOption = async (optionId: string) => {
     if (!id) return
     if (!(await confirmAction({ title: 'Supprimer cette option et ses valeurs ?', description: 'Les variantes concernées perdront ce choix.', confirmLabel: 'Supprimer l’option', tone: 'danger' }))) return
-    const { error: deleteError } = await supabase.from('product_options').delete().eq('id', optionId)
-    if (deleteError) {
-      setError("Impossible de supprimer cette option.")
-      return
+    try {
+      const { error: deleteError } = await supabase.from('product_options').delete().eq('id', optionId)
+      if (deleteError) {
+        setError("Impossible de supprimer cette option.")
+        return
+      }
+      setVariantSelection((prev) => {
+        const next = { ...prev }
+        delete next[optionId]
+        return next
+      })
+      await Promise.all([loadOptions(id), loadVariants(id)])
+    } catch {
+      setError('Connexion interrompue. Vérifiez si cette option a été supprimée avant de réessayer.')
     }
-    setVariantSelection((prev) => {
-      const next = { ...prev }
-      delete next[optionId]
-      return next
-    })
-    await Promise.all([loadOptions(id), loadVariants(id)])
   }
 
   const addOptionValuesBulk = async (option: ProductOption) => {
@@ -379,10 +387,14 @@ export default function AdminProductEdit() {
       return true
     })
     if (!unique.length) { setError('Toutes ces valeurs existent déjà.'); return }
-    const { error } = await supabase.from('product_option_values').insert(unique.map((value, index) => ({ option_id: option.id, value, sort_order: (option.values ?? []).length + index })))
-    if (error) { setError("Impossible d'ajouter les valeurs."); return }
-    setBulkValueDraft((prev) => ({ ...prev, [option.id]: '' }))
-    await loadOptions(id)
+    try {
+      const { error } = await supabase.from('product_option_values').insert(unique.map((value, index) => ({ option_id: option.id, value, sort_order: (option.values ?? []).length + index })))
+      if (error) { setError("Impossible d'ajouter les valeurs."); return }
+      setBulkValueDraft((prev) => ({ ...prev, [option.id]: '' }))
+      await loadOptions(id)
+    } catch {
+      setError("Connexion interrompue. Vérifiez si les valeurs ont été ajoutées avant de réessayer.")
+    }
   }
 
   const uploadOptionValueImage = async (valueId: string, event: React.ChangeEvent<HTMLInputElement>) => {
@@ -433,12 +445,16 @@ export default function AdminProductEdit() {
 
   const deleteOptionValue = async (valueId: string) => {
     if (!id) return
-    const { error: deleteError } = await supabase.from('product_option_values').delete().eq('id', valueId)
-    if (deleteError) {
-      setError('Impossible de supprimer cette valeur.')
-      return
+    try {
+      const { error: deleteError } = await supabase.from('product_option_values').delete().eq('id', valueId)
+      if (deleteError) {
+        setError('Impossible de supprimer cette valeur.')
+        return
+      }
+      await Promise.all([loadOptions(id), loadVariants(id)])
+    } catch {
+      setError('Connexion interrompue. Vérifiez si cette valeur a été supprimée avant de réessayer.')
     }
-    await Promise.all([loadOptions(id), loadVariants(id)])
   }
 
   const selectedValueIds = options.map((option) => variantSelection[option.id]).filter(Boolean)
@@ -674,25 +690,33 @@ export default function AdminProductEdit() {
   }
 
   const toggleVariant = async (variant: ProductVariant) => {
-    const { error: updateError } = await supabase
-      .from('product_variants')
-      .update({ is_active: !variant.is_active })
-      .eq('id', variant.id)
-    if (updateError) {
-      setError('Impossible de modifier cette variante.')
-      return
+    try {
+      const { error: updateError } = await supabase
+        .from('product_variants')
+        .update({ is_active: !variant.is_active })
+        .eq('id', variant.id)
+      if (updateError) {
+        setError('Impossible de modifier cette variante.')
+        return
+      }
+      if (id) await loadVariants(id)
+    } catch {
+      setError('Connexion interrompue. Vérifiez le statut de cette variante avant de réessayer.')
     }
-    if (id) await loadVariants(id)
   }
 
   const deleteVariant = async (variantId: string) => {
     if (!id) return
-    const { error: deleteError } = await supabase.from('product_variants').delete().eq('id', variantId)
-    if (deleteError) {
-      setError('Impossible de supprimer cette variante.')
-      return
+    try {
+      const { error: deleteError } = await supabase.from('product_variants').delete().eq('id', variantId)
+      if (deleteError) {
+        setError('Impossible de supprimer cette variante.')
+        return
+      }
+      await loadVariants(id)
+    } catch {
+      setError('Connexion interrompue. Vérifiez si cette variante a été supprimée avant de réessayer.')
     }
-    await loadVariants(id)
   }
 
   const variantLabel = (variant: ProductVariant) => {

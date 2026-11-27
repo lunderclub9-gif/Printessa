@@ -22,6 +22,8 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - name: Update npm security tooling
+        run: npm install --global npm@11
       - name: Resolve non-breaking security updates
         run: npm audit fix
       - name: Install updated lockfile

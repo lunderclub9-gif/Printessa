@@ -63,5 +63,7 @@ jobs:
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git commit -m "fix: resolve dependency security advisories"
+            git fetch origin "${GITHUB_REF_NAME}"
+            git rebase FETCH_HEAD
             git push origin "HEAD:${GITHUB_REF_NAME}"
           fi

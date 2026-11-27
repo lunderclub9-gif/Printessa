@@ -10,6 +10,17 @@ type Props = {
 }
 
 export default function ProductCard({ product, imageUrl }: Props) {
+  const hasSelectableOptions = product.product_options?.some((option) =>
+    option.values?.some((value) => value.is_active)
+  ) ?? false
+  const activeVariants = product.product_variants?.filter((variant) => variant.is_active) ?? []
+  const available = hasSelectableOptions
+    ? activeVariants.some((variant) => (variant.made_to_order ?? product.made_to_order) || variant.stock_quantity > 0)
+    : product.made_to_order || product.stock_quantity > 0
+  const availabilityLabel = hasSelectableOptions
+    ? available ? 'Options disponibles' : 'Épuisé'
+    : product.made_to_order ? 'Sur commande' : available ? 'En stock' : 'Épuisé'
+
   return (
     <Link
       to={`/boutique/produits/${product.slug}`}
@@ -49,13 +60,9 @@ export default function ProductCard({ product, imageUrl }: Props) {
         </h3>
         <div className="mt-2 flex items-center justify-between">
           <span className="text-base font-bold text-offwhite">{formatDzd(product.price_dzd)}</span>
-          {product.made_to_order ? (
-            <span className="text-[10px] text-charcoal-400">Sur commande</span>
-          ) : product.stock_quantity > 0 ? (
-            <span className="text-[10px] text-green-500">En stock</span>
-          ) : (
-            <span className="text-[10px] text-brand-red-light">Épuisé</span>
-          )}
+          <span className={`text-[10px] ${available ? 'text-green-500' : 'text-brand-red-light'}`}>
+            {availabilityLabel}
+          </span>
         </div>
       </div>
     </Link>

@@ -47,18 +47,33 @@ function summarize(details: Record<string, unknown> | null): string {
 export default function AdminHistory() {
   const [entries, setEntries] = useState<AuditEntry[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [reloadKey, setReloadKey] = useState(0)
 
   useEffect(() => {
-    supabase
-      .from('audit_log')
-      .select('id, action, entity, entity_id, details, created_at')
-      .order('created_at', { ascending: false })
-      .limit(200)
-      .then(({ data }) => {
-        setEntries((data as AuditEntry[]) ?? [])
-        setLoading(false)
-      })
-  }, [])
+    let active = true
+    const load = async () => {
+      setLoading(true)
+      setError(null)
+      try {
+        const { data, error: queryError } = await supabase
+          .from('audit_log')
+          .select('id, action, entity, entity_id, details, created_at')
+          .order('created_at', { ascending: false })
+          .limit(200)
+        if (queryError) throw queryError
+        if (active) setEntries((data as AuditEntry[]) ?? [])
+      } catch {
+        if (active) setError("Impossible de charger l'historique. Vérifiez vos droits et votre connexion.")
+      } finally {
+        if (active) setLoading(false)
+      }
+    }
+    void load()
+    return () => {
+      active = false
+    }
+  }, [reloadKey])
 
   return (
     <div className="animate-fade-in">
@@ -68,11 +83,18 @@ export default function AdminHistory() {
         commandes. Les 200 dernières entrées sont affichées.
       </p>
 
+      {error && (
+        <div role="alert" className="admin-feedback admin-feedback-error mb-4 flex flex-wrap items-center justify-between gap-3">
+          <span>{error}</span>
+          <button type="button" onClick={() => setReloadKey((value) => value + 1)} className="btn-secondary">Réessayer</button>
+        </div>
+      )}
+
       {loading ? (
         <div className="flex items-center justify-center py-16">
           <Loader2 className="h-8 w-8 animate-spin text-brand-red" />
         </div>
-      ) : entries.length === 0 ? (
+      ) : error ? null : entries.length === 0 ? (
         <div className="admin-card py-16 text-center">
           <HistoryIcon className="mx-auto mb-4 h-12 w-12 text-charcoal-500" />
           <p className="text-charcoal-400">Aucune action enregistrée pour le moment.</p>

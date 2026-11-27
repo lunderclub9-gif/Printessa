@@ -29,19 +29,24 @@ export default function TrackOrderPage() {
     }
 
     setLoading(true)
-    const { data, error: rpcError } = await supabase.rpc('track_order', {
-      p_order_number: orderNumber.trim(),
-      p_phone: normalized,
-    })
-    setLoading(false)
+    try {
+      const { data, error: rpcError } = await supabase.rpc('track_order', {
+        p_order_number: orderNumber.trim(),
+        p_phone: normalized,
+      })
 
-    if (rpcError || !data) {
-      setError(
-        orderErrorMessage(rpcError?.message, 'Aucune commande ne correspond à ces informations.')
-      )
-      return
+      if (rpcError || !data) {
+        setError(
+          orderErrorMessage(rpcError?.message, 'Aucune commande ne correspond à ces informations.')
+        )
+        return
+      }
+      setOrder(data as TrackedOrder)
+    } catch {
+      setError('Connexion interrompue. Vérifiez votre connexion puis réessayez.')
+    } finally {
+      setLoading(false)
     }
-    setOrder(data as TrackedOrder)
   }
 
   return (

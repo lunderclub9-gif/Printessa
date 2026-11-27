@@ -475,44 +475,54 @@ export default function AdminProductEdit() {
 
     const price = variantPrice.trim() ? Math.round(Number(variantPrice)) : null
     const stock = Number(variantStock)
-    if (price !== null && (!Number.isFinite(price) || price < 0)) {
-      setError('Le prix des variantes doit être un nombre positif.')
+    if (price !== null && (!Number.isSafeInteger(price) || price < 0)) {
+      setError('Le prix des variantes doit être un nombre entier positif.')
       return
     }
-    if (!Number.isFinite(stock) || stock < 0) {
-      setError('Le stock initial doit être un nombre positif ou nul.')
+    if (!Number.isSafeInteger(stock) || stock < 0) {
+      setError('Le stock initial doit être un nombre entier positif ou nul.')
       return
     }
 
     setError(null)
-    const { data: created, error: createError } = await supabase
-      .from('product_variants')
-      .insert(missingValues.map((value) => ({
-        product_id: id,
-        label: value.value,
-        price_dzd: price,
-        stock_quantity: Math.round(stock),
-      })))
-      .select('id, label')
+    try {
+      const { data: created, error: createError } = await supabase
+        .from('product_variants')
+        .insert(missingValues.map((value) => ({
+          product_id: id,
+          label: value.value,
+          price_dzd: price,
+          stock_quantity: stock,
+        })))
+        .select('id, label')
 
-    if (createError || !created?.length) {
-      setError('Impossible de créer automatiquement les variantes.')
-      return
+      if (createError || !created?.length) {
+        setError('Impossible de créer automatiquement les variantes.')
+        return
+      }
+
+      const links = created.map((variant) => {
+        const value = missingValues.find((item) => item.value === variant.label)
+        return value ? { variant_id: variant.id, option_value_id: value.id } : null
+      }).filter((link): link is { variant_id: string; option_value_id: string } => link !== null)
+
+      const { error: linkError } = await supabase.from('product_variant_values').insert(links)
+      if (linkError) {
+        const cleanup = await supabase.from('product_variants').delete().in('id', created.map((variant) => variant.id))
+        setError(cleanup.error
+          ? 'Les variantes n’ont pas pu être reliées et le nettoyage automatique a échoué. Vérifiez les variantes avant de recommencer.'
+          : 'Les variantes n’ont pas pu être reliées. Les créations partielles ont été annulées.')
+        return
+      }
+
+      await loadVariants(id)
+      setVariantSelection({})
+      setVariantPrice('')
+      setVariantStock('0')
+    } catch {
+      setError('Connexion interrompue. Rechargez les variantes pour vérifier le résultat avant de réessayer.')
+      await loadVariants(id)
     }
-
-    const links = created.map((variant) => {
-      const value = missingValues.find((item) => item.value === variant.label)
-      return value ? { variant_id: variant.id, option_value_id: value.id } : null
-    }).filter((link): link is { variant_id: string; option_value_id: string } => link !== null)
-
-    const { error: linkError } = await supabase.from('product_variant_values').insert(links)
-    if (linkError) {
-      await supabase.from('product_variants').delete().in('id', created.map((variant) => variant.id))
-      setError('Les variantes n’ont pas pu être reliées à leurs valeurs. Aucune variante partielle n’a été conservée.')
-      return
-    }
-
-    await loadVariants(id)
   }
 
   const createAllVariantCombinations = async () => {
@@ -612,41 +622,53 @@ export default function AdminProductEdit() {
       .join(' / ')
 
     const price = variantPrice.trim() ? Math.round(Number(variantPrice)) : null
-    if (price !== null && (!Number.isFinite(price) || price < 0)) {
-      setError('Le prix de la variante doit être un nombre positif.')
+    const stock = Number(variantStock)
+    if (price !== null && (!Number.isSafeInteger(price) || price < 0)) {
+      setError('Le prix de la variante doit être un nombre entier positif.')
+      return
+    }
+    if (!Number.isSafeInteger(stock) || stock < 0) {
+      setError('Le stock de la variante doit être un nombre entier positif ou nul.')
       return
     }
 
-    const { data, error: variantError } = await supabase
-      .from('product_variants')
-      .insert({
-        product_id: id,
-        label,
-        price_dzd: price,
-        stock_quantity: Math.max(0, Math.round(Number(variantStock) || 0)),
-      })
-      .select('id')
-      .single()
+    try {
+      const { data, error: variantError } = await supabase
+        .from('product_variants')
+        .insert({
+          product_id: id,
+          label,
+          price_dzd: price,
+          stock_quantity: stock,
+        })
+        .select('id')
+        .single()
 
-    if (variantError || !data) {
-      setError("Impossible de créer la variante.")
-      return
+      if (variantError || !data) {
+        setError("Impossible de créer la variante.")
+        return
+      }
+
+      const { error: linkError } = await supabase
+        .from('product_variant_values')
+        .insert(selectedValueIds.map((valueId) => ({ variant_id: data.id, option_value_id: valueId })))
+
+      if (linkError) {
+        const cleanup = await supabase.from('product_variants').delete().eq('id', data.id)
+        setError(cleanup.error
+          ? 'Les options de la variante n’ont pas pu être enregistrées et le nettoyage a échoué. Vérifiez cette variante.'
+          : 'Impossible d’enregistrer les options de cette variante. La création partielle a été annulée.')
+        return
+      }
+
+      setVariantSelection({})
+      setVariantPrice('')
+      setVariantStock('0')
+      await loadVariants(id)
+    } catch {
+      setError('Connexion interrompue. Rechargez les variantes pour vérifier le résultat avant de réessayer.')
+      await loadVariants(id)
     }
-
-    const { error: linkError } = await supabase
-      .from('product_variant_values')
-      .insert(selectedValueIds.map((valueId) => ({ variant_id: data.id, option_value_id: valueId })))
-
-    if (linkError) {
-      await supabase.from('product_variants').delete().eq('id', data.id)
-      setError('Impossible d’enregistrer les options de cette variante.')
-      return
-    }
-
-    setVariantSelection({})
-    setVariantPrice('')
-    setVariantStock('0')
-    await loadVariants(id)
   }
 
   const handleVariantImageUpload = async (

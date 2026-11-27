@@ -34,6 +34,7 @@ export default function AdminProductEdit() {
 
   const [options, setOptions] = useState<ProductOption[]>([])
   const [variants, setVariants] = useState<ProductVariant[]>([])
+  const [variantsLoadFailed, setVariantsLoadFailed] = useState(false)
   const [newOptionName, setNewOptionName] = useState('')
   const [bulkValueDraft, setBulkValueDraft] = useState<Record<string, string>>({})
   const [selectedShapeId, setSelectedShapeId] = useState('')
@@ -115,9 +116,11 @@ export default function AdminProductEdit() {
       if (queryError) throw queryError
       if (requestId !== productLoadSequence.current) return
       setVariants((data as ProductVariant[]) ?? [])
+      setVariantsLoadFailed(false)
     } catch {
       if (requestId === productLoadSequence.current) {
-        setError('Impossible de charger les variantes du produit. Vérifiez la connexion puis réessayez.')
+        setVariantsLoadFailed(true)
+        setError('Impossible de charger les variantes du produit. Rechargez-les avant de modifier les options.')
       }
     }
   }
@@ -381,6 +384,10 @@ export default function AdminProductEdit() {
   const deleteOption = async (optionId: string) => {
     if (!id) return
     const option = options.find((item) => item.id === optionId)
+    if (variantsLoadFailed) {
+      setError('Rechargez les variantes avant de supprimer une option afin de protéger les associations existantes.')
+      return
+    }
     const optionValueIds = new Set((option?.values ?? []).map((value) => value.id))
     const affectedVariants = variants.filter((variant) =>
       (variant.values ?? []).some((value) => optionValueIds.has(value.option_value_id))
@@ -527,6 +534,10 @@ export default function AdminProductEdit() {
   const deleteOptionValue = async (valueId: string) => {
     if (!id) return
     const value = options.flatMap((option) => option.values ?? []).find((item) => item.id === valueId)
+    if (variantsLoadFailed) {
+      setError('Rechargez les variantes avant de supprimer une valeur afin de protéger les associations existantes.')
+      return
+    }
     const affectedVariants = variants.filter((variant) =>
       (variant.values ?? []).some((item) => item.option_value_id === valueId)
     )
@@ -1042,8 +1053,13 @@ export default function AdminProductEdit() {
       )}
 
       {error && (
-        <div className="mb-6 rounded-lg border border-brand-red/30 bg-brand-red/10 px-4 py-3 text-sm text-brand-red-light">
-          {error}
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-brand-red/30 bg-brand-red/10 px-4 py-3 text-sm text-brand-red-light">
+          <span>{error}</span>
+          {variantsLoadFailed && id && (
+            <button type="button" onClick={() => void loadVariants(id)} className="btn-secondary">
+              Recharger les variantes
+            </button>
+          )}
         </div>
       )}
 

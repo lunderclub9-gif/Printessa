@@ -50,12 +50,23 @@ export default function CheckoutPage() {
   )
 
   useEffect(() => {
+    let cancelled = false
     supabase
       .from('wilayas')
       .select('code, name_fr')
       .eq('is_active', true)
       .order('code')
-      .then(({ data }) => setWilayas((data as Wilaya[]) ?? []))
+      .then(({ data, error: queryError }) => {
+        if (cancelled) return
+        setWilayas(queryError ? [] : (data as Wilaya[]) ?? [])
+      })
+      .catch(() => {
+        if (!cancelled) setWilayas([])
+      })
+
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   useEffect(() => {
@@ -65,13 +76,20 @@ export default function CheckoutPage() {
     setPickupId('')
     if (!wilayaCode) return
 
+    let cancelled = false
+
     supabase
       .from('communes')
       .select('id, name_fr')
       .eq('wilaya_code', Number(wilayaCode))
       .eq('is_active', true)
       .order('name_fr')
-      .then(({ data }) => setCommunes((data as Commune[]) ?? []))
+      .then(({ data, error: queryError }) => {
+        if (!cancelled) setCommunes(queryError ? [] : (data as Commune[]) ?? [])
+      })
+      .catch(() => {
+        if (!cancelled) setCommunes([])
+      })
 
     supabase
       .from('pickup_points')
@@ -79,7 +97,16 @@ export default function CheckoutPage() {
       .eq('wilaya_code', Number(wilayaCode))
       .eq('is_active', true)
       .order('name')
-      .then(({ data }) => setPickupPoints((data as PickupPoint[]) ?? []))
+      .then(({ data, error: queryError }) => {
+        if (!cancelled) setPickupPoints(queryError ? [] : (data as PickupPoint[]) ?? [])
+      })
+      .catch(() => {
+        if (!cancelled) setPickupPoints([])
+      })
+
+    return () => {
+      cancelled = true
+    }
   }, [wilayaCode])
 
   // Devis de livraison : la seule source de prix autorisée.
@@ -108,6 +135,11 @@ export default function CheckoutPage() {
           return
         }
         setQuote(row)
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setQuoteError("Impossible de calculer les frais de livraison. Vérifiez votre connexion puis réessayez.")
+        }
       })
 
     return () => {

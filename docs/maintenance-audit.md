@@ -44,6 +44,9 @@ or changing production data.
 - Restored the promised manual custom-request path: customers can now complete contact and
   delivery details and submit a request without dimensions or an automatic estimate. When an
   estimate is available, its acceptance remains required before submission.
+- Added loading, error and retry states for the custom-request page's materials, wilayas, communes
+  and pickup-point lookups. Delivery fields now indicate when destination data is loading and
+  prevent submission while required destination data is unavailable.
 - Hardened the owner dashboard retry flow and settings load/save flow so network failures do not
   leave permanent loading states or silently replace existing settings with blank values.
 - Made owner sign-out continue even if the audit-event RPC is unavailable.

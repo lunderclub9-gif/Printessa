@@ -28,38 +28,59 @@ export default function AdminLogin() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (submitting) return
+
     setError(null)
     setSubmitting(true)
 
-    const { error: signInError } = await supabase.auth.signInWithPassword({ email, password })
+    try {
+      const { error: signInError } = await supabase.auth.signInWithPassword({ email, password })
 
-    if (signInError) {
-      if (isPostHogEnabled) {
-        posthogLogger.warn('owner login rejected', { reason: 'invalid_credentials' })
+      if (signInError) {
+        if (isPostHogEnabled) {
+          posthogLogger.warn('owner login rejected', { reason: 'invalid_credentials' })
+        }
+        setError('Identifiants invalides.')
+        return
       }
-      setError('Identifiants invalides.')
-      setSubmitting(false)
-      return
-    }
 
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', (await supabase.auth.getUser()).data.user?.id)
-      .maybeSingle()
+      const { data: userData, error: userError } = await supabase.auth.getUser()
+      const userId = userData.user?.id
 
-    if (profile?.role !== 'owner') {
-      if (isPostHogEnabled) {
-        posthogLogger.warn('owner login rejected', { reason: 'not_authorized' })
+      if (userError || !userId) {
+        await supabase.auth.signOut()
+        setError('Identifiants invalides.')
+        return
       }
-      await supabase.auth.signOut()
-      setError('Identifiants invalides.')
-      setSubmitting(false)
-      return
-    }
 
-    await supabase.rpc('log_owner_event', { p_action: 'proprietaire.connexion' })
-    navigate('/admin/dashboard')
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', userId)
+        .maybeSingle()
+
+      if (profileError || profile?.role !== 'owner') {
+        if (isPostHogEnabled) {
+          posthogLogger.warn('owner login rejected', { reason: 'not_authorized' })
+        }
+        await supabase.auth.signOut()
+        setError('Identifiants invalides.')
+        return
+      }
+
+      // L'échec de journalisation ne doit pas empêcher le propriétaire de se connecter.
+      const { error: auditError } = await supabase.rpc('log_owner_event', {
+        p_action: 'proprietaire.connexion',
+      })
+      if (auditError) console.warn('[LUNDER] journalisation de connexion indisponible')
+
+      navigate('/admin/dashboard')
+    } catch {
+      await supabase.auth.signOut().catch(() => undefined)
+      setError('Connexion impossible. Vérifiez votre connexion puis réessayez.')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (

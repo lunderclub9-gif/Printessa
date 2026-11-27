@@ -481,6 +481,22 @@ export default function AdminProductEdit() {
         setError('Impossible de supprimer cette valeur.')
         return
       }
+      if (value?.image_url) {
+        const imagePath = storageObjectPath(value.image_url, 'product-images')
+        if (imagePath?.startsWith(`${id}/`)) {
+          const { data: references, error: referenceError } = await supabase
+            .from('product_option_values')
+            .select('id')
+            .eq('image_url', value.image_url)
+            .limit(1)
+          if (referenceError) {
+            setError('La valeur a été supprimée, mais le contrôle des références de sa photo a échoué. Le fichier a été conservé.')
+          } else if (!references?.length) {
+            const { error: storageError } = await supabase.storage.from('product-images').remove([imagePath])
+            if (storageError) setError('La valeur a été supprimée, mais sa photo reste dans le stockage et devra être nettoyée.')
+          }
+        }
+      }
       await Promise.all([loadOptions(id), loadVariants(id)])
     } catch {
       setError('Connexion interrompue. Vérifiez si cette valeur a été supprimée avant de réessayer.')

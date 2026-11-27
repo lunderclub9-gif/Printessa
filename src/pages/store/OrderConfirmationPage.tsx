@@ -26,14 +26,26 @@ export default function OrderConfirmationPage() {
       setLoading(false)
       return
     }
-    supabase.rpc('get_order_by_token', { p_token: token }).then(({ data, error: rpcError }) => {
-      if (rpcError || !data) {
-        setError(orderErrorMessage(rpcError?.message, 'Commande introuvable.'))
-      } else {
-        setOrder(data as OrderDetail)
+    let cancelled = false
+    supabase.rpc('get_order_by_token', { p_token: token }).then(
+      ({ data, error: rpcError }) => {
+        if (cancelled) return
+        if (rpcError || !data) {
+          setError(orderErrorMessage(rpcError?.message, 'Commande introuvable.'))
+        } else {
+          setOrder(data as OrderDetail)
+        }
+        setLoading(false)
+      },
+      () => {
+        if (cancelled) return
+        setError('Connexion interrompue. Rechargez la page pour vérifier votre commande.')
+        setLoading(false)
       }
-      setLoading(false)
-    })
+    )
+    return () => {
+      cancelled = true
+    }
   }, [token])
 
   useEffect(() => {

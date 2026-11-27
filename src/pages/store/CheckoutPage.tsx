@@ -4,6 +4,7 @@ import { AlertCircle, Loader2, ShoppingBag, Truck } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useCart } from '@/lib/cart'
 import { formatDzd } from '@/lib/format'
+import { MAX_ORDER_LINES } from '@/lib/cart-storage'
 import {
   DELIVERY_METHOD_LABELS,
   buildOrderNote,
@@ -161,6 +162,10 @@ export default function CheckoutPage() {
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
     setError(null)
+    if (items.length > MAX_ORDER_LINES) {
+      setError(`Votre panier dépasse la limite de ${MAX_ORDER_LINES} références. Revenez au panier et retirez des articles avant de commander.`)
+      return
+    }
 
     const normalizedPhone = normalizeAlgerianPhone(phone)
     if (!normalizedPhone) {

@@ -3,6 +3,7 @@ import { Package } from 'lucide-react'
 import type { Product } from '@/lib/supabase'
 import { formatDzd } from '@/lib/format'
 import posthog, { isPostHogEnabled } from '@/lib/posthog'
+import { getProductAvailability } from '@/lib/product-availability'
 
 type Props = {
   product: Product
@@ -10,16 +11,7 @@ type Props = {
 }
 
 export default function ProductCard({ product, imageUrl }: Props) {
-  const hasSelectableOptions = product.product_options?.some((option) =>
-    option.values?.some((value) => value.is_active)
-  ) ?? false
-  const activeVariants = product.product_variants?.filter((variant) => variant.is_active) ?? []
-  const available = hasSelectableOptions
-    ? activeVariants.some((variant) => (variant.made_to_order ?? product.made_to_order) || variant.stock_quantity > 0)
-    : product.made_to_order || product.stock_quantity > 0
-  const availabilityLabel = hasSelectableOptions
-    ? available ? 'Options disponibles' : 'Épuisé'
-    : product.made_to_order ? 'Sur commande' : available ? 'En stock' : 'Épuisé'
+  const { available, label: availabilityLabel } = getProductAvailability(product)
 
   return (
     <Link

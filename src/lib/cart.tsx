@@ -1,4 +1,4 @@
-import { parseStoredCart, type CartItem } from './cart-storage'
+import { cartLineKey, parseStoredCart, type CartItem } from './cart-storage'
 
 export type { CartItem } from './cart-storage'
 
@@ -56,7 +56,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
   }, [items])
 
   const add = useCallback((item: Omit<CartItem, 'key' | 'quantity'>, quantity = 1) => {
-    const key = `${item.productId}::${item.variantId ?? 'base'}`
+    const key = cartLineKey(item.productId, item.variantId, item.selectedColor ?? null)
     setItems((current) => {
       const existing = current.find((line) => line.key === key)
       if (existing) {

@@ -198,45 +198,57 @@ export default function AdminDelivery() {
 
   const deleteRate = async (id: string) => {
     if (!(await confirmAction({ title: 'Supprimer ce tarif ?', description: 'Ce tarif de livraison sera supprimé.', confirmLabel: 'Supprimer le tarif', tone: 'danger' }))) return
-    const { error: deleteError } = await supabase.from('delivery_rates').delete().eq('id', id)
-    if (deleteError) {
-      setError('Impossible de supprimer ce tarif.')
-      return
+    try {
+      const { error: deleteError } = await supabase.from('delivery_rates').delete().eq('id', id)
+      if (deleteError) {
+        setError('Impossible de supprimer ce tarif.')
+        return
+      }
+      await loadWilayaData(Number(wilayaCode))
+    } catch {
+      setError('Connexion interrompue. Vérifiez si le tarif a été supprimé avant de réessayer.')
     }
-    await loadWilayaData(Number(wilayaCode))
   }
 
   const toggleWilaya = async (wilaya: Wilaya) => {
-    const { error: updateError } = await supabase
-      .from('wilayas')
-      .update({ is_active: !wilaya.is_active })
-      .eq('code', wilaya.code)
-    if (updateError) {
-      setError('Impossible de modifier cette wilaya.')
-      return
+    try {
+      const { error: updateError } = await supabase
+        .from('wilayas')
+        .update({ is_active: !wilaya.is_active })
+        .eq('code', wilaya.code)
+      if (updateError) {
+        setError('Impossible de modifier cette wilaya.')
+        return
+      }
+      setWilayas((current) =>
+        current.map((item) => (item.code === wilaya.code ? { ...item, is_active: !item.is_active } : item))
+      )
+    } catch {
+      setError('Connexion interrompue. Vérifiez le statut de cette wilaya avant de réessayer.')
     }
-    setWilayas((current) =>
-      current.map((item) => (item.code === wilaya.code ? { ...item, is_active: !item.is_active } : item))
-    )
   }
 
   const addPoint = async () => {
     if (!pointName.trim()) return
     setError(null)
-    const { error: insertError } = await supabase.from('pickup_points').insert({
-      wilaya_code: Number(wilayaCode),
-      commune_id: pointCommune || null,
-      name: pointName.trim(),
-      address: pointAddress.trim() || null,
-    })
-    if (insertError) {
-      setError("Impossible d'ajouter ce point relais.")
-      return
+    try {
+      const { error: insertError } = await supabase.from('pickup_points').insert({
+        wilaya_code: Number(wilayaCode),
+        commune_id: pointCommune || null,
+        name: pointName.trim(),
+        address: pointAddress.trim() || null,
+      })
+      if (insertError) {
+        setError("Impossible d'ajouter ce point relais.")
+        return
+      }
+      setPointName('')
+      setPointAddress('')
+      setPointCommune('')
+      await loadWilayaData(Number(wilayaCode))
+    } catch {
+      setError("Connexion interrompue. Vérifiez si le point relais a été ajouté avant de réessayer.")
     }
-    setPointName('')
-    setPointAddress('')
-    setPointCommune('')
-    await loadWilayaData(Number(wilayaCode))
   }
 
   const deletePoint = async (point: PickupPoint) => {

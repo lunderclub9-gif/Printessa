@@ -131,33 +131,43 @@ export default function AdminOrders() {
   const changeStatus = async (orderId: string, status: string) => {
     setBusy(true)
     setError(null)
-    const { error: rpcError } = await supabase.rpc('set_order_status', {
-      p_order_id: orderId,
-      p_status: status,
-    })
-    setBusy(false)
-    if (rpcError) {
-      setError(orderErrorMessage(rpcError.message, 'Impossible de modifier le statut.'))
-      return
+    try {
+      const { error: rpcError } = await supabase.rpc('set_order_status', {
+        p_order_id: orderId,
+        p_status: status,
+      })
+      if (rpcError) {
+        setError(orderErrorMessage(rpcError.message, 'Impossible de modifier le statut.'))
+        return
+      }
+      await load(searchText)
+    } catch {
+      setError('Connexion interrompue. Le statut de la commande doit être vérifié avant de réessayer.')
+    } finally {
+      setBusy(false)
     }
-    await load(searchText)
   }
 
   const handleDelete = async (order: OrderRow) => {
     setDeleteError(null)
     if (!(await confirmAction({ title: 'Archiver cette commande ?', description: `La commande ${order.order_number} restera consultable dans les archives.`, confirmLabel: 'Archiver', tone: 'danger' }))) return
     setDeletingId(order.id)
-    const { error: rpcError } = await supabase.rpc('delete_order', {
-      p_order_id: order.id,
-      p_reason: 'Suppression demandée depuis l\'interface',
-    })
-    setDeletingId(null)
-    if (rpcError) {
-      setDeleteError(orderErrorMessage(rpcError.message, 'Impossible d\'archiver cette commande.'))
-      return
+    try {
+      const { error: rpcError } = await supabase.rpc('delete_order', {
+        p_order_id: order.id,
+        p_reason: 'Suppression demandée depuis l\'interface',
+      })
+      if (rpcError) {
+        setDeleteError(orderErrorMessage(rpcError.message, 'Impossible d\'archiver cette commande.'))
+        return
+      }
+      setDeleteError(null)
+      await load(searchText)
+    } catch {
+      setDeleteError('Connexion interrompue. Vérifiez si la commande a été archivée avant de réessayer.')
+    } finally {
+      setDeletingId(null)
     }
-    setDeleteError(null)
-    await load(searchText)
   }
 
   const hardDelete = async (order: OrderRow) => {
@@ -166,18 +176,23 @@ export default function AdminOrders() {
       return
     }
     setDeletingId(order.id)
-    const { error: rpcError } = await supabase.rpc('delete_delivered_order', {
-      p_order_id: order.id,
-      p_reason: 'Suppression définitive demandée depuis l\'interface propriétaire',
-    })
-    setDeletingId(null)
-    if (rpcError) {
-      setDeleteError(
-        orderErrorMessage(rpcError.message, 'Impossible de supprimer définitivement cette commande.')
-      )
-      return
+    try {
+      const { error: rpcError } = await supabase.rpc('delete_delivered_order', {
+        p_order_id: order.id,
+        p_reason: 'Suppression définitive demandée depuis l\'interface propriétaire',
+      })
+      if (rpcError) {
+        setDeleteError(
+          orderErrorMessage(rpcError.message, 'Impossible de supprimer définitivement cette commande.')
+        )
+        return
+      }
+      await load(searchText)
+    } catch {
+      setDeleteError('Connexion interrompue. Vérifiez le résultat de la suppression avant de réessayer.')
+    } finally {
+      setDeletingId(null)
     }
-    await load(searchText)
   }
 
   const visible = (filter ? orders.filter((order) => order.status === filter) : orders).filter(

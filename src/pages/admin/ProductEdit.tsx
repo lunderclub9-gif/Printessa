@@ -11,7 +11,7 @@ import {
   type ProductVariant,
 } from '@/lib/supabase'
 import { slugify, generateSku } from '@/lib/format'
-import { validateImage, validateModel } from '@/lib/media'
+import { storageObjectPath, validateImage, validateModel } from '@/lib/media'
 import { buildVariantCombinations, variantCombinationKey } from '@/lib/product-variants'
 import posthog, { isPostHogEnabled } from '@/lib/posthog'
 
@@ -234,15 +234,6 @@ export default function AdminProductEdit() {
     if (isPostHogEnabled) posthog.capture('product_primary_image_set', { product_id: id, image_id: imageId })
   }
 
-  const storagePath = (url: string, bucket: 'product-images' | 'product-models') => {
-    try {
-      const parsed = new URL(url)
-      const marker = `/${bucket}/`
-      const index = parsed.pathname.indexOf(marker)
-      return index >= 0 ? decodeURIComponent(parsed.pathname.slice(index + marker.length)) : null
-    } catch { return null }
-  }
-
   const deleteImage = async (imageId: string, imageUrl: string) => {
     if (!id || !(await confirmAction({ title: 'Supprimer cette photo ?', description: 'La photo sera retirée de la galerie du produit.', confirmLabel: 'Supprimer la photo', tone: 'danger' }))) return
     const image = images.find((item) => item.id === imageId)
@@ -254,7 +245,7 @@ export default function AdminProductEdit() {
       const { error: primaryError } = await supabase.from('product_images').update({ is_primary: true }).eq('id', remaining[0].id).eq('product_id', id)
       if (!primaryError) setImages((current) => current.map((item) => ({ ...item, is_primary: item.id === remaining[0].id })))
     }
-    const path = storagePath(imageUrl, 'product-images')
+    const path = storageObjectPath(imageUrl, 'product-images')
     if (path && path.startsWith(`${id}/`)) {
       const { data: references, error: referenceError } = await supabase.from('product_images').select('id').eq('image_url', imageUrl).limit(1)
       if (referenceError) setError('La photo a été retirée du produit, mais la vérification des références du fichier a échoué; le fichier a été conservé par sécurité.')
@@ -273,7 +264,7 @@ export default function AdminProductEdit() {
     if (updateError) { setError('Impossible de retirer le modèle 3D du produit.'); return }
     setForm((current) => ({ ...current, model_url: '' }))
     setOriginalModelUrl('')
-    const path = storagePath(previousUrl, 'product-models')
+    const path = storageObjectPath(previousUrl, 'product-models')
     if (path && path.startsWith(`${id}/`)) {
       const { data: references, error: referenceError } = await supabase.from('products').select('id').eq('model_url', previousUrl).neq('id', id).limit(1)
       if (referenceError) setError('Le modèle a été retiré du produit, mais le contrôle des références a échoué; le fichier a été conservé par sécurité.')
@@ -705,7 +696,7 @@ export default function AdminProductEdit() {
         const { error: upErr } = await supabase.from('products').update(savePayload).eq('id', id)
         if (upErr) throw upErr
         if (originalModelUrl && originalModelUrl !== payload.model_url) {
-          const previousPath = storagePath(originalModelUrl, 'product-models')
+          const previousPath = storageObjectPath(originalModelUrl, 'product-models')
           if (previousPath && previousPath.startsWith(`${id}/`)) {
             const { data: references, error: referenceError } = await supabase.from('products').select('id').eq('model_url', originalModelUrl).neq('id', id).limit(1)
             if (!referenceError && !references?.length) {

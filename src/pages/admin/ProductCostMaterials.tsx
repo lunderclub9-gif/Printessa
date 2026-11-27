@@ -122,7 +122,7 @@ export default function ProductCostMaterialsPage() {
         <form onSubmit={(event) => { event.preventDefault(); void addMaterial() }} className="grid gap-3 border-t border-charcoal-400/15 pt-5 sm:grid-cols-[minmax(0,1fr)_10rem_auto]">
           <label className="block"><span className="label-text">Nom de la matière</span><input type="text" value={materialName} onChange={(event) => setMaterialName(event.target.value)} className="input-field" placeholder="Ex. PLA noir" required /></label>
           <label className="block"><span className="label-text">Coût (DA / kg)</span><input type="number" min={0} step={1} value={materialCost} onChange={(event) => setMaterialCost(event.target.value)} className="input-field" placeholder="Ex. 2500" required /></label>
-          <div className="flex items-end"><button type="submit" disabled={busy} className="btn-primary w-full sm:w-auto">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}Ajouter</button></div>
+          <div className="flex items-end"><button type="submit" disabled={busy || loadFailed} className="btn-primary w-full sm:w-auto">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}Ajouter</button></div>
         </form>
       </section>
     </div>

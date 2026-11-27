@@ -187,6 +187,14 @@ export default function CheckoutPage() {
       return
     }
 
+    const colorNotes = items
+      .filter((line) => line.selectedColor)
+      .map((line) => `- ${line.name} : ${line.selectedColor}`)
+    const orderNote = [
+      note.trim(),
+      colorNotes.length ? `Couleurs sélectionnées :\\n${colorNotes.join('\\n')}` : '',
+    ].filter(Boolean).join('\\n\\n')
+
     setSubmitting(true)
     try {
       const { data, error: rpcError } = await supabase.rpc('create_guest_order', {
@@ -200,7 +208,7 @@ export default function CheckoutPage() {
           delivery_method: method,
           address: method === 'domicile' ? address.trim() : null,
           pickup_point_id: method === 'stopdesk' ? pickupId : null,
-          note: note.trim() || null,
+          note: orderNote || null,
           items: items.map((line) => ({
             product_id: line.productId,
             variant_id: line.variantId,

@@ -5,6 +5,24 @@ import { useAdminConfirm } from '@/components/admin/AdminConfirmProvider'
 import { supabase, type Product } from '@/lib/supabase'
 import { formatDzd } from '@/lib/format'
 
+async function listStorageObjectPaths(
+  bucket: 'product-images' | 'product-models',
+  folder: string
+): Promise<string[]> {
+  const { data, error } = await supabase.storage.from(bucket).list(folder, { limit: 1000 })
+  if (error) throw error
+  const paths: string[] = []
+  for (const entry of data ?? []) {
+    const objectPath = `${folder}/${entry.name}`
+    if (entry.id === null) {
+      paths.push(...await listStorageObjectPaths(bucket, objectPath))
+    } else {
+      paths.push(objectPath)
+    }
+  }
+  return paths
+}
+
 export default function AdminProducts() {
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
@@ -40,42 +58,61 @@ export default function AdminProducts() {
   const deleteProduct = async (product: Product) => {
     if (!(await confirmAction({ title: `Supprimer « ${product.name} » ?`, description: 'Cette action supprime définitivement le produit et ses médias associés. Les lignes de commandes historiques conservent leur instantané.', confirmLabel: 'Supprimer le produit', tone: 'danger' }))) return
     setDeletingId(product.id)
-    const { data: imageFiles, error: imageListError } = await supabase.storage.from('product-images').list(product.id, { limit: 1000 })
-    const { data: modelFiles, error: modelListError } = await supabase.storage.from('product-models').list(product.id, { limit: 1000 })
-    if (imageListError || modelListError) {
-      window.alert('Impossible de préparer la suppression des médias. Le produit n’a pas été supprimé.')
+    let productDeleted = false
+    try {
+      const [imagePaths, modelPaths] = await Promise.all([
+        listStorageObjectPaths('product-images', product.id),
+        listStorageObjectPaths('product-models', product.id),
+      ])
+
+      const { error: deleteError } = await supabase.from('products').delete().eq('id', product.id)
+      if (deleteError) {
+        window.alert('Impossible de supprimer le produit. Vérifiez les dépendances et les autorisations.')
+        return
+      }
+      productDeleted = true
+      setProducts((current) => current.filter((item) => item.id !== product.id))
+
+      const collectUnreferenced = async (
+        bucket: 'product-images' | 'product-models',
+        paths: string[],
+        table: 'product_images' | 'products',
+        column: 'image_url' | 'model_url'
+      ) => {
+        const unreferenced: string[] = []
+        for (const objectPath of paths) {
+          const publicUrl = supabase.storage.from(bucket).getPublicUrl(objectPath).data.publicUrl
+          const { data: references, error: referenceError } = await supabase
+            .from(table)
+            .select('id')
+            .eq(column, publicUrl)
+            .limit(1)
+          if (referenceError) throw referenceError
+          if (!references?.length) unreferenced.push(objectPath)
+        }
+        return unreferenced
+      }
+
+      const [unusedImages, unusedModels] = await Promise.all([
+        collectUnreferenced('product-images', imagePaths, 'product_images', 'image_url'),
+        collectUnreferenced('product-models', modelPaths, 'products', 'model_url'),
+      ])
+      const [imageCleanup, modelCleanup] = await Promise.all([
+        unusedImages.length ? supabase.storage.from('product-images').remove(unusedImages) : Promise.resolve({ error: null }),
+        unusedModels.length ? supabase.storage.from('product-models').remove(unusedModels) : Promise.resolve({ error: null }),
+      ])
+      if (imageCleanup.error || modelCleanup.error) {
+        window.alert('Le produit a été supprimé, mais certains fichiers n’ont pas pu être nettoyés. Un nettoyage manuel du dossier du produit est nécessaire.')
+      }
+    } catch {
+      window.alert(
+        productDeleted
+          ? 'Le produit a été supprimé, mais le nettoyage de ses médias n’a pas pu être confirmé. Les fichiers restants ont été conservés par sécurité.'
+          : 'Impossible de préparer la suppression du produit et de ses médias. Le produit n’a pas été supprimé.'
+      )
+    } finally {
       setDeletingId(null)
-      return
     }
-    const { error: deleteError } = await supabase.from('products').delete().eq('id', product.id)
-    if (deleteError) {
-      window.alert('Impossible de supprimer le produit. Vérifiez les dépendances et les autorisations.')
-      setDeletingId(null)
-      return
-    }
-    setProducts((current) => current.filter((item) => item.id !== product.id))
-    const imagePaths: string[] = []
-    for (const file of imageFiles ?? []) {
-      const objectPath = `${product.id}/${file.name}`
-      const publicUrl = supabase.storage.from('product-images').getPublicUrl(objectPath).data.publicUrl
-      const { data: references, error: referenceError } = await supabase.from('product_images').select('id').eq('image_url', publicUrl).limit(1)
-      if (!referenceError && !references?.length) imagePaths.push(objectPath)
-    }
-    const modelPaths: string[] = []
-    for (const file of modelFiles ?? []) {
-      const objectPath = `${product.id}/${file.name}`
-      const publicUrl = supabase.storage.from('product-models').getPublicUrl(objectPath).data.publicUrl
-      const { data: references, error: referenceError } = await supabase.from('products').select('id').eq('model_url', publicUrl).limit(1)
-      if (!referenceError && !references?.length) modelPaths.push(objectPath)
-    }
-    const [imageCleanup, modelCleanup] = await Promise.all([
-      imagePaths.length ? supabase.storage.from('product-images').remove(imagePaths) : Promise.resolve({ error: null }),
-      modelPaths.length ? supabase.storage.from('product-models').remove(modelPaths) : Promise.resolve({ error: null }),
-    ])
-    if (imageCleanup.error || modelCleanup.error) {
-      window.alert('Le produit a été supprimé, mais certains fichiers de stockage n’ont pas pu être nettoyés. Un nettoyage manuel du dossier du produit est nécessaire.')
-    }
-    setDeletingId(null)
   }
 
   const filtered = products.filter(

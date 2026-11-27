@@ -1,49 +1,79 @@
-# Printessa maintenance audit
+# Printessa — technical and product audit
 
-This branch is a cleanup pass only. Keep the storefront, checkout, custom-request workflow,
-owner administration, delivery, 3D preview, SEO and order history working unless a concrete
-dead-code or duplicate-flow finding is proven.
+This branch now covers a broader reliability and product-quality review, not only cleanup.
+The goal is to improve the existing 3D-printing storefront without removing working features
+or changing production data.
 
 ## Confirmed repository findings
 
-- The repository has 20 ordered Supabase migrations. The timestamp order differs from the
-  numeric suffix around migrations 015 and 016: timestamp 12:00 contains suffix 016, while
-  suffix 015 is timestamp 12:30. Supabase migration history is timestamp-based. Do not rename
-  or rewrite applied migration files; use a new forward migration for schema changes.
-- The README listed only migrations 001–015 and incorrectly described every migration as safe
-  to replay. It now lists all 20 in timestamp order and warns that idempotency is statement-specific.
-- The CI workflow did not run on maintenance branches. It now includes `maintenance/**`.
-- `ProductEdit.tsx` is approximately 65 KB and combines product loading/saving, media uploads,
-  option editing, variant generation and deletion. The first safe extractions are complete: `src/lib/product-variants.ts` owns order-independent
-  combination keys and bounded Cartesian generation; `src/lib/media.ts` now owns shared Storage URL
-  path parsing. Both helpers have focused tests. Variant generation checks the 100-variant cap
-  before allocating combinations, and the editor reuses one storage-path parser for product images
-  and 3D models. The remaining editor responsibilities still need gradual extraction.
-- Manufacturing configuration and product-cost configuration use different database models:
-  `manufacturing_materials` (price per gram, density, multiplier and print availability) versus
-  `materials` (cost per kilogram for product cost estimates). They look similar in the UI but
-  are not proven duplicates. Do not merge or delete either table until every query, RPC and
-  stored cost calculation is traced.
-- The notification provider and notification center have separate responsibilities (data/state
-  versus presentation). Keep that boundary unless a real duplicated subscription or query is found.
-- Browser-side manufacturing pricing is explicitly an estimate; PostgreSQL recalculates the
-  authoritative quote. Keep both implementations until parity tests cover the shared rules.
+- The repository contains 20 Supabase migration files. Their timestamp order differs from
+  numeric suffix order around migrations 015 and 016: suffix 016 has timestamp 12:00 while
+  suffix 015 has timestamp 12:30. Supabase orders migrations by timestamp. Preserve the files
+  and their historical order; do not rename, squash, delete, or replay them blindly.
+- The production project records two migration versions that are absent from this repository.
+  This is a deployment blocker until the history and live schema are reconciled read-only.
+- CI now runs on `maintenance/**`. The last fully completed baseline run before the current
+  reliability changes passed lint, typecheck, unit tests and production build.
+- `ProductEdit.tsx` is approximately 65 KB and still combines product loading/saving, media,
+  options, variants and deletion. Pure helpers for variant combinations and media storage paths
+  have already been extracted and tested. Further extraction should be incremental.
+- `manufacturing_materials` and `materials` represent different business concepts and must
+  not be merged: manufacturing pricing uses gram-level material data; product costing uses
+  kilogram-level material costs.
+- Manufacturing price calculations in the browser are estimates. PostgreSQL remains the
+  authoritative source for quotes and order totals.
+- Notification state/subscriptions and notification presentation have separate responsibilities;
+  do not merge them without evidence of duplicated subscriptions or queries.
 
-## Safe next steps
+## Reliability fixes added on this branch
 
-1. Continue extracting focused modules from the product editor (option values, variant persistence
-   and form persistence) without changing database calls or UI behavior.
-2. Keep adding tests around extracted pure functions before moving side effects.
-3. Trace all references to both material tables and document their business purpose.
-4. Compare client pricing tests with SQL behavior using an isolated PostgreSQL/Supabase database.
-5. Validate RLS, RPC grants, storage policies, trigger behavior and migration replay on a disposable
-   database. Never experiment on the original LUNDER project or a production database.
-6. Run CI (lint, TypeScript, unit tests and production build) after each coherent refactor.
+- Added `src/lib/cart-storage.ts` to treat browser local-storage content as untrusted input.
+  It validates required fields, rejects invalid prices and quantities, reconstructs stable line
+  keys, limits quantities and ignores duplicate product/variant lines.
+- Added unit tests for valid legacy cart data, malformed values, quantity limits, duplicates,
+  invalid JSON and non-array storage.
+- Hardened checkout submission so thrown network failures and incomplete RPC responses show a
+  recoverable message, preserve the cart and always release the submitting state.
+- Added cancellation guards to delivery lookups so a slower response for a previous wilaya cannot
+  overwrite the current commune or pickup-point lists.
+- Added explicit handling for failed delivery quote and location lookups.
+
+## Database and security review — outstanding
+
+- Keep all 20 migration files unchanged unless a concrete defect is proven. Intentional
+  `CREATE OR REPLACE` revisions and later security hardening are part of the historical sequence.
+- Production migration-history mismatch remains unresolved. No production schema, grants,
+  migration history or data have been changed.
+- Review SECURITY DEFINER functions and EXECUTE grants by call path. Public guest RPCs must remain
+  callable where the storefront requires them; owner-only RPCs and internal trigger helpers
+  should not be exposed unnecessarily. Do not revoke grants until client and trigger paths are
+  confirmed.
+- Review the `manufacturing_materials_public` view and its security-invoker behavior against the
+  intended public material catalogue before changing it.
+- Review missing FK indexes, RLS policy performance advisories and unused indexes against actual
+  query patterns. Do not make blanket index or policy changes.
+- Test SQL behavior, RLS, grants, storage policies and trigger behavior on a disposable database
+  before proposing any forward migration.
+
+## Remaining product and source audit
+
+1. Trace every customer journey: browse, product options, cart, checkout, confirmation, tracking,
+   custom request, quote approval and request status.
+2. Trace every owner journey: product/category management, images and 3D models, orders, delivery,
+   custom requests, manufacturing pricing, cost configuration, settings and audit history.
+3. Check every asynchronous screen for loading, empty, error, retry and stale-response states.
+4. Verify all destructive actions have confirmation, server-side authorization and clear results.
+5. Check accessibility, mobile layout, image/3D performance, SEO metadata and route fallbacks.
+6. Add focused tests for each confirmed bug before or with its fix.
+7. Keep changes in this maintenance branch and require passing CI before considering the PR ready.
 
 ## Guardrails
 
-- No destructive database migration in this cleanup pass without an isolated validation database.
-- Do not rename historical migration files or squash applied migrations.
-- Do not remove a feature solely because its implementation is large or its UI looks similar.
-- Keep this work on `maintenance/cleanup-audit`; do not merge it into `main` until checks and
-  review are complete.
+- Do not modify the original LUNDER repository.
+- Do not modify `main` directly or merge this draft PR during the audit.
+- Do not change production Supabase data, schema, grants or migration history.
+- Do not rename, squash, reorder or delete the existing 20 migration files.
+- Do not remove a feature merely because its implementation is large or visually similar to
+  another feature.
+- Keep existing business rules, DZD pricing, COD checkout, Algerian wilaya/commune data,
+  owner-only administration, custom manufacturing and 3D product viewing intact.

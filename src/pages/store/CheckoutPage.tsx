@@ -6,6 +6,7 @@ import { useCart } from '@/lib/cart'
 import { formatDzd } from '@/lib/format'
 import {
   DELIVERY_METHOD_LABELS,
+  buildOrderNote,
   normalizeAlgerianPhone,
   orderErrorMessage,
   type CreatedOrder,
@@ -187,13 +188,7 @@ export default function CheckoutPage() {
       return
     }
 
-    const colorNotes = items
-      .filter((line) => line.selectedColor)
-      .map((line) => `- ${line.name} : ${line.selectedColor}`)
-    const orderNote = [
-      note.trim(),
-      colorNotes.length ? `Couleurs sélectionnées :\n${colorNotes.join('\n')}` : '',
-    ].filter(Boolean).join('\n\n')
+    const orderNote = buildOrderNote(note, items)
 
     setSubmitting(true)
     try {
@@ -208,7 +203,7 @@ export default function CheckoutPage() {
           delivery_method: method,
           address: method === 'domicile' ? address.trim() : null,
           pickup_point_id: method === 'stopdesk' ? pickupId : null,
-          note: orderNote || null,
+          note: orderNote,
           items: items.map((line) => ({
             product_id: line.productId,
             variant_id: line.variantId,

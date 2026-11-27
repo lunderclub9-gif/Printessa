@@ -74,7 +74,12 @@ export default function CustomRequestPage() {
     typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}`
   )
   const uploadLock = useRef(false)
-  const idempotencyKey = useRef<string>(crypto.randomUUID())
+  const estimateRequestSequence = useRef(0)
+  const idempotencyKey = useRef<string>(
+    typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+  )
 
   useEffect(() => {
     let active = true
@@ -109,22 +114,37 @@ export default function CustomRequestPage() {
     setPickupPoints([])
     setPickupId('')
     if (!wilayaCode) return
+    let cancelled = false
     supabase
       .from('communes')
       .select('id, name_fr')
       .eq('wilaya_code', Number(wilayaCode))
       .eq('is_active', true)
       .order('name_fr')
-      .then(({ data }) => setCommunes((data as Commune[]) ?? []))
+      .then(({ data, error: queryError }) => {
+        if (!cancelled) setCommunes(queryError ? [] : (data as Commune[]) ?? [])
+      })
+      .catch(() => {
+        if (!cancelled) setCommunes([])
+      })
     supabase
       .from('pickup_points')
       .select('id, name, address')
       .eq('wilaya_code', Number(wilayaCode))
       .eq('is_active', true)
-      .then(({ data }) => setPickupPoints((data as PickupPoint[]) ?? []))
+      .then(({ data, error: queryError }) => {
+        if (!cancelled) setPickupPoints(queryError ? [] : (data as PickupPoint[]) ?? [])
+      })
+      .catch(() => {
+        if (!cancelled) setPickupPoints([])
+      })
+    return () => {
+      cancelled = true
+    }
   }, [wilayaCode])
 
   const runEstimate = useCallback(async () => {
+    const requestId = ++estimateRequestSequence.current
     const l = Number(lengthMm)
     const w = Number(widthMm)
     const h = Number(heightMm)
@@ -132,43 +152,57 @@ export default function CustomRequestPage() {
     if (!material || !Number.isFinite(l) || l <= 0 || !Number.isFinite(w) || w <= 0 || !Number.isFinite(h) || h <= 0) {
       setEstimate(null)
       setEstimateError(null)
+      setEstimateLoading(false)
       return
     }
+
     setEstimateLoading(true)
     setEstimateError(null)
-    const { data, error: rpcError } = await supabase.rpc('estimate_manufacturing_dimensions', {
-      p_length_mm: l,
-      p_width_mm: w,
-      p_height_mm: h,
-      p_material_name: material,
-      p_quantity: qty,
-      p_options: options,
-      p_rush: rush,
-    })
-    setEstimateLoading(false)
-    if (rpcError || !data) {
+    try {
+      const { data, error: rpcError } = await supabase.rpc('estimate_manufacturing_dimensions', {
+        p_length_mm: l,
+        p_width_mm: w,
+        p_height_mm: h,
+        p_material_name: material,
+        p_quantity: qty,
+        p_options: options,
+        p_rush: rush,
+      })
+      if (requestId !== estimateRequestSequence.current) return
+      setEstimateLoading(false)
+      if (rpcError || !data) {
+        setEstimate(null)
+        setEstimateError(orderErrorMessage(rpcError?.message, 'Estimation impossible pour ces dimensions.'))
+        return
+      }
+      const d = data as Record<string, unknown>
+      setEstimate({
+        lines: (d.lines as Estimate['lines']) ?? [],
+        totalDzd: Number(d.totalDzd ?? 0),
+        quantity: Number(d.quantity ?? qty),
+        discountPercent: Number(d.discountPercent ?? 0),
+        discountDzd: Number(d.discountDzd ?? 0),
+        rushFeeDzd: Number(d.rushFeeDzd ?? 0),
+        assumptions: (d.assumptions as string[]) ?? [],
+        estimates: d.estimates as Estimate['estimates'],
+      })
+    } catch {
+      if (requestId !== estimateRequestSequence.current) return
+      setEstimateLoading(false)
       setEstimate(null)
-      setEstimateError(orderErrorMessage(rpcError?.message, 'Estimation impossible pour ces dimensions.'))
-      return
+      setEstimateError('Connexion interrompue pendant le calcul. Vérifiez votre connexion puis réessayez.')
     }
-    const d = data as Record<string, unknown>
-    setEstimate({
-      lines: (d.lines as Estimate['lines']) ?? [],
-      totalDzd: Number(d.totalDzd ?? 0),
-      quantity: Number(d.quantity ?? qty),
-      discountPercent: Number(d.discountPercent ?? 0),
-      discountDzd: Number(d.discountDzd ?? 0),
-      rushFeeDzd: Number(d.rushFeeDzd ?? 0),
-      assumptions: (d.assumptions as string[]) ?? [],
-      estimates: d.estimates as Estimate['estimates'],
-    })
+  }
   }, [lengthMm, widthMm, heightMm, material, quantity, options, rush])
 
   useEffect(() => {
     const timer = setTimeout(() => {
       void runEstimate()
     }, 450)
-    return () => clearTimeout(timer)
+    return () => {
+      clearTimeout(timer)
+      estimateRequestSequence.current += 1
+    }
   }, [runEstimate])
 
   // Toute modification des paramètres invalide l'acceptation précédente : le
@@ -287,54 +321,65 @@ export default function CustomRequestPage() {
     }
 
     setSubmitting(true)
-    const { data, error: rpcError } = await supabase.rpc('create_custom_request', {
-      p_payload: {
-        idempotency_key: idempotencyKey.current,
-        customer_name: name.trim(),
-        phone: normalized,
-        email: email.trim() || null,
-        title: title.trim(),
-        description: description.trim(),
-        intended_use: intendedUse.trim() || null,
-        dimensions: hasAllDimensions ? `${lengthMm} x ${widthMm} x ${heightMm}` : null,
-        dimension_unit: 'mm',
-        dim_length_mm: hasAllDimensions ? Number(lengthMm) : null,
-        dim_width_mm: hasAllDimensions ? Number(widthMm) : null,
-        dim_height_mm: hasAllDimensions ? Number(heightMm) : null,
-        material_preference: material || null,
-        color_preference: color.trim() || null,
-        quantity: Number(quantity) || 1,
-        manufacturing_options: options,
-        rush,
-        estimate_accepted: Boolean(estimate && estimateAccepted),
-        delivery: {
-          wilaya_code: Number(wilayaCode),
-          commune_id: communeId,
-          method,
-          address: method === 'domicile' ? address.trim() : null,
-          pickup_point_id: method === 'stopdesk' ? pickupId : null,
+    try {
+      const { data, error: rpcError } = await supabase.rpc('create_custom_request', {
+        p_payload: {
+          idempotency_key: idempotencyKey.current,
+          customer_name: name.trim(),
+          phone: normalized,
+          email: email.trim() || null,
+          title: title.trim(),
+          description: description.trim(),
+          intended_use: intendedUse.trim() || null,
+          dimensions: hasAllDimensions ? `${lengthMm} x ${widthMm} x ${heightMm}` : null,
+          dimension_unit: 'mm',
+          dim_length_mm: hasAllDimensions ? Number(lengthMm) : null,
+          dim_width_mm: hasAllDimensions ? Number(widthMm) : null,
+          dim_height_mm: hasAllDimensions ? Number(heightMm) : null,
+          material_preference: material || null,
+          color_preference: color.trim() || null,
+          quantity: Number(quantity) || 1,
+          manufacturing_options: options,
+          rush,
+          estimate_accepted: Boolean(estimate && estimateAccepted),
+          delivery: {
+            wilaya_code: Number(wilayaCode),
+            commune_id: communeId,
+            method,
+            address: method === 'domicile' ? address.trim() : null,
+            pickup_point_id: method === 'stopdesk' ? pickupId : null,
+          },
+          files: files.map((file) => ({
+            path: file.path,
+            name: file.name,
+            mime: file.mime,
+            size: file.size,
+            kind: file.kind,
+          })),
         },
-        files: files.map((file) => ({
-          path: file.path,
-          name: file.name,
-          mime: file.mime,
-          size: file.size,
-          kind: file.kind,
-        })),
-      },
-    })
-    setSubmitting(false)
+      })
 
-    if (rpcError) {
-      setError(
-        orderErrorMessage(
-          rpcError.message,
-          "La demande n'a pas pu être enregistrée. Vérifiez vos informations."
+      if (rpcError) {
+        setError(
+          orderErrorMessage(
+            rpcError.message,
+            "La demande n'a pas pu être enregistrée. Vérifiez vos informations."
+          )
         )
-      )
-      return
+        return
+      }
+
+      const result = data as CreatedRequest | null
+      if (!result?.request_number || !result.tracking_token) {
+        setError("La réponse du serveur est incomplète. Vos fichiers ont été conservés ; vérifiez le suivi avant de renvoyer la demande.")
+        return
+      }
+      setCreated(result)
+    } catch {
+      setError("Connexion interrompue pendant l'envoi. Vos fichiers ont été conservés ; vérifiez le suivi avant de renvoyer la demande.")
+    } finally {
+      setSubmitting(false)
     }
-    setCreated(data as CreatedRequest)
   }
 
   useEffect(() => {

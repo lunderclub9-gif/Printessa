@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseStoredCart } from './cart-storage'
+import { cartLineKey, parseStoredCart } from './cart-storage'
 
 const validItem = {
   productId: 'product-1',
@@ -7,6 +7,7 @@ const validItem = {
   slug: 'objet-3d',
   name: 'Objet 3D',
   variantLabel: null,
+  selectedColor: null,
   unitPriceDzd: 1200,
   quantity: 2,
   imageUrl: null,
@@ -38,6 +39,23 @@ describe('parseStoredCart', () => {
     ]))
     expect(result).toHaveLength(1)
     expect(result[0].quantity).toBe(10)
+  })
+
+  it('keeps the same product in separate lines when colors differ', () => {
+    const items = parseStoredCart(JSON.stringify([
+      { ...validItem, selectedColor: 'Rouge' },
+      { ...validItem, selectedColor: 'Bleu' },
+      { ...validItem, selectedColor: 'rouge' },
+    ]))
+    expect(items).toHaveLength(2)
+    expect(items.map((item) => item.selectedColor)).toEqual(['Rouge', 'Bleu'])
+    expect(items[0].key).toBe(cartLineKey('product-1', null, 'Rouge'))
+    expect(items[1].key).toBe(cartLineKey('product-1', null, 'Bleu'))
+  })
+
+  it('accepts legacy cart lines without a selectedColor field', () => {
+    const { selectedColor: _selectedColor, ...legacyItem } = validItem
+    expect(parseStoredCart(JSON.stringify([legacyItem]))[0].selectedColor).toBeNull()
   })
 
   it('returns an empty cart for invalid JSON or a non-array value', () => {

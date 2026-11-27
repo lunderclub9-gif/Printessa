@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildVariantCombinations, variantCombinationKey } from './product-variants'
+import { buildVariantCombinations, getVariantIdsUsingOptionValues, variantCombinationKey } from './product-variants'
 
 describe('variantCombinationKey', () => {
   it('is independent of selected value order', () => {
@@ -47,5 +47,30 @@ describe('buildVariantCombinations', () => {
       })),
     }))
     expect(buildVariantCombinations(options).reason).toBe('limit-exceeded')
+  })
+})
+
+
+describe('getVariantIdsUsingOptionValues', () => {
+  const variants = [
+    { id: 'variant-a', values: [{ option_value_id: 'round' }, { option_value_id: 'red' }] },
+    { id: 'variant-b', values: [{ option_value_id: 'square' }, { option_value_id: 'blue' }] },
+    { id: 'variant-c', values: [{ option_value_id: 'red' }] },
+    { id: 'variant-empty', values: [] },
+  ]
+
+  it('finds every variant linked to any value being removed', () => {
+    expect(getVariantIdsUsingOptionValues(variants, ['round', 'red'])).toEqual([
+      'variant-a',
+      'variant-c',
+    ])
+  })
+
+  it('returns no variants for an empty removal set', () => {
+    expect(getVariantIdsUsingOptionValues(variants, [])).toEqual([])
+  })
+
+  it('does not match variants with no option-value links', () => {
+    expect(getVariantIdsUsingOptionValues(variants, ['missing'])).toEqual([])
   })
 })

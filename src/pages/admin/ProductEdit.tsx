@@ -69,16 +69,24 @@ export default function AdminProductEdit() {
   }, [id])
 
   const loadCategories = async () => {
-    const { data } = await supabase.from('categories').select('*').eq('is_active', true).order('name')
+    const { data, error: queryError } = await supabase.from('categories').select('*').eq('is_active', true).order('name')
+    if (queryError) {
+      setError('Impossible de charger les catégories. Vérifiez la connexion puis réessayez.')
+      return
+    }
     setCategories((data as Category[]) ?? [])
   }
 
   const loadOptions = async (productId: string) => {
-    const { data } = await supabase
+    const { data, error: queryError } = await supabase
       .from('product_options')
       .select('*, values:product_option_values(*)')
       .eq('product_id', productId)
       .order('sort_order')
+    if (queryError) {
+      setError('Impossible de charger les options du produit.')
+      return
+    }
     const parsed = ((data as ProductOption[]) ?? []).map((option) => ({
       ...option,
       values: [...(option.values ?? [])].sort(
@@ -89,17 +97,30 @@ export default function AdminProductEdit() {
   }
 
   const loadVariants = async (productId: string) => {
-    const { data } = await supabase
+    const { data, error: queryError } = await supabase
       .from('product_variants')
       .select('*, values:product_variant_values(option_value_id)')
       .eq('product_id', productId)
       .order('created_at')
+    if (queryError) {
+      setError('Impossible de charger les variantes du produit.')
+      return
+    }
     setVariants((data as ProductVariant[]) ?? [])
   }
 
   const loadProduct = async (productId: string) => {
-    const { data } = await supabase.from('products').select('*').eq('id', productId).maybeSingle()
-    if (data) {
+    setLoading(true)
+    setError(null)
+    try {
+      const { data, error: productError } = await supabase
+        .from('products')
+        .select('*')
+        .eq('id', productId)
+        .maybeSingle()
+      if (productError) throw productError
+      if (!data) throw new Error('Produit introuvable ou accès refusé.')
+
       const p = data as Product
       setForm({
         name: p.name,
@@ -122,15 +143,20 @@ export default function AdminProductEdit() {
         seo_keywords: ((p as Product & { seo_keywords?: string[] }).seo_keywords ?? []).join(', '),
       })
       setOriginalModelUrl(p.model_url ?? '')
+
+      const { data: imgs, error: imageError } = await supabase
+        .from('product_images')
+        .select('*')
+        .eq('product_id', productId)
+        .order('sort_order')
+      if (imageError) throw imageError
+      setImages((imgs as ProductImage[]) ?? [])
+      await Promise.all([loadOptions(productId), loadVariants(productId)])
+    } catch {
+      setError('Impossible de charger complètement ce produit. Vérifiez la connexion et vos droits avant toute modification.')
+    } finally {
+      setLoading(false)
     }
-    const { data: imgs } = await supabase
-      .from('product_images')
-      .select('*')
-      .eq('product_id', productId)
-      .order('sort_order')
-    setImages((imgs as ProductImage[]) ?? [])
-    await Promise.all([loadOptions(productId), loadVariants(productId)])
-    setLoading(false)
   }
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -651,8 +677,21 @@ export default function AdminProductEdit() {
       setError('Le nom du produit est requis.')
       return
     }
-    if (form.price_dzd < 0) {
-      setError('Le prix doit être un nombre positif.')
+    if (!Number.isSafeInteger(form.price_dzd) || form.price_dzd < 0) {
+      setError('Le prix doit être un nombre entier de dinars positif.')
+      return
+    }
+    if (!form.made_to_order && (!Number.isSafeInteger(form.stock_quantity) || form.stock_quantity < 0)) {
+      setError('Le stock doit être un nombre entier positif ou nul.')
+      return
+    }
+    const leadDays = form.production_lead_days.trim() ? Number(form.production_lead_days) : null
+    const weight = form.weight_g.trim() ? Number(form.weight_g) : null
+    if (
+      (leadDays !== null && (!Number.isSafeInteger(leadDays) || leadDays < 0)) ||
+      (weight !== null && (!Number.isFinite(weight) || weight <= 0))
+    ) {
+      setError('Vérifiez le délai de production et le poids renseignés.')
       return
     }
     setSaving(true)
@@ -670,8 +709,8 @@ export default function AdminProductEdit() {
         price_dzd: Math.round(form.price_dzd),
         stock_quantity: form.made_to_order ? 0 : Math.round(form.stock_quantity),
         made_to_order: form.made_to_order,
-        production_lead_days: form.production_lead_days ? parseInt(form.production_lead_days) : null,
-        weight_g: form.weight_g ? parseFloat(form.weight_g) : null,
+        production_lead_days: leadDays,
+        weight_g: weight,
         dimensions: form.dimensions || null,
         material: form.material || null,
         model_url: form.model_url || null,
@@ -681,7 +720,16 @@ export default function AdminProductEdit() {
         seo_description: form.seo_description || null,
       }
       const { error: seoColumnError } = await supabase.from('products').select('seo_keywords').limit(1)
-      const savePayload = seoColumnError
+      const missingSeoColumn = Boolean(
+        seoColumnError &&
+        (seoColumnError.code === '42703' ||
+          seoColumnError.code === 'PGRST204' ||
+          /column .*seo_keywords|schema cache/i.test(seoColumnError.message))
+      )
+      if (seoColumnError && !missingSeoColumn) {
+        throw new Error('Impossible de vérifier les champs SEO. Le produit n’a pas été enregistré.')
+      }
+      const savePayload = missingSeoColumn
         ? payload
         : { ...payload, seo_keywords: form.seo_keywords.split(',').map((keyword) => keyword.trim()).filter(Boolean) }
 
@@ -711,7 +759,7 @@ export default function AdminProductEdit() {
         }
         // Le bandeau de visibilité doit refléter l'état réellement enregistré.
         setForm((prev) => ({ ...prev, status: payload.status }))
-        if (seoColumnError && form.seo_keywords.trim()) setError('Produit enregistré. Les mots-clés SEO seront sauvegardés après application de la migration 014.')
+        if (missingSeoColumn && form.seo_keywords.trim()) setError('Produit enregistré. Les mots-clés SEO seront disponibles après application de la migration 014.')
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur lors de l'enregistrement du produit.")

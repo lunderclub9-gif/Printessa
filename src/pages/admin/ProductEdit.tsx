@@ -66,7 +66,10 @@ export default function AdminProductEdit() {
   useEffect(() => {
     loadCategories()
     if (!isNew && id) loadProduct(id)
-  }, [id])
+    return () => {
+      productLoadSequence.current += 1
+    }
+  }, [id, isNew])
 
   const loadCategories = async () => {
     try {
@@ -78,7 +81,7 @@ export default function AdminProductEdit() {
     }
   }
 
-  const loadOptions = async (productId: string) => {
+  const loadOptions = async (productId: string, requestId = productLoadSequence.current) => {
     try {
       const { data, error: queryError } = await supabase
         .from('product_options')
@@ -86,6 +89,7 @@ export default function AdminProductEdit() {
         .eq('product_id', productId)
         .order('sort_order')
       if (queryError) throw queryError
+      if (requestId !== productLoadSequence.current) return
       const parsed = ((data as ProductOption[]) ?? []).map((option) => ({
         ...option,
         values: [...(option.values ?? [])].sort(
@@ -98,7 +102,7 @@ export default function AdminProductEdit() {
     }
   }
 
-  const loadVariants = async (productId: string) => {
+  const loadVariants = async (productId: string, requestId = productLoadSequence.current) => {
     try {
       const { data, error: queryError } = await supabase
         .from('product_variants')
@@ -106,6 +110,7 @@ export default function AdminProductEdit() {
         .eq('product_id', productId)
         .order('created_at')
       if (queryError) throw queryError
+      if (requestId !== productLoadSequence.current) return
       setVariants((data as ProductVariant[]) ?? [])
     } catch {
       setError('Impossible de charger les variantes du produit. Vérifiez la connexion puis réessayez.')
@@ -113,6 +118,7 @@ export default function AdminProductEdit() {
   }
 
   const loadProduct = async (productId: string) => {
+    const requestId = ++productLoadSequence.current
     setLoading(true)
     setError(null)
     try {
@@ -123,6 +129,7 @@ export default function AdminProductEdit() {
         .maybeSingle()
       if (productError) throw productError
       if (!data) throw new Error('Produit introuvable ou accès refusé.')
+      if (requestId !== productLoadSequence.current) return
 
       const p = data as Product
       setForm({
@@ -153,12 +160,15 @@ export default function AdminProductEdit() {
         .eq('product_id', productId)
         .order('sort_order')
       if (imageError) throw imageError
+      if (requestId !== productLoadSequence.current) return
       setImages((imgs as ProductImage[]) ?? [])
-      await Promise.all([loadOptions(productId), loadVariants(productId)])
+      await Promise.all([loadOptions(productId, requestId), loadVariants(productId, requestId)])
     } catch {
-      setError('Impossible de charger complètement ce produit. Vérifiez la connexion et vos droits avant toute modification.')
+      if (requestId === productLoadSequence.current) {
+        setError('Impossible de charger complètement ce produit. Vérifiez la connexion et vos droits avant toute modification.')
+      }
     } finally {
-      setLoading(false)
+      if (requestId === productLoadSequence.current) setLoading(false)
     }
   }
 

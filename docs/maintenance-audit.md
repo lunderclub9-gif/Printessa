@@ -76,6 +76,17 @@ or changing production data.
   order note, which is shown on customer confirmation and in the owner order view. Legacy cart
   entries without a color remain compatible.
 - Added tests for color-specific cart line identity and legacy cart parsing.
+- Product cards now calculate availability from active option values and variant-level stock or
+  made-to-order flags. Previously a product with zero base stock could be shown as exhausted even
+  when one of its selectable variants was available.
+- Hardened the catalogue and category pages against stale search responses and rejected network
+  requests; category failures now have a retry state rather than appearing as a missing category.
+- Hardened the storefront home-page catalogue load and public store-settings load against thrown
+  network failures.
+- Corrected route-level SEO behavior: the store layout now restores page metadata when navigating
+  between routes, while product/category metadata can override the route defaults. Optional
+  description, keywords and social-image tags are removed when absent so a previous product's
+  metadata does not leak onto the next page.
 
 ## Confirmed product behavior gap
 

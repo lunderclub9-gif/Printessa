@@ -14,12 +14,13 @@ import {
 
 const STORAGE_KEY = 'lunders_panier_v1'
 const MAX_QUANTITY = 10
+const MAX_ORDER_LINES = 20
 
 type CartContextValue = {
   items: CartItem[]
   count: number
   subtotal: number
-  add: (item: Omit<CartItem, 'key' | 'quantity'>, quantity?: number) => void
+  add: (item: Omit<CartItem, 'key' | 'quantity'>, quantity?: number) => boolean
   setQuantity: (key: string, quantity: number) => void
   remove: (key: string) => void
   clear: () => void
@@ -29,7 +30,7 @@ const CartContext = createContext<CartContextValue>({
   items: [],
   count: 0,
   subtotal: 0,
-  add: () => {},
+  add: () => true,
   setQuantity: () => {},
   remove: () => {},
   clear: () => {},
@@ -57,6 +58,9 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
   const add = useCallback((item: Omit<CartItem, 'key' | 'quantity'>, quantity = 1) => {
     const key = cartLineKey(item.productId, item.variantId, item.selectedColor ?? null)
+    const alreadyInCart = items.some((line) => line.key === key)
+    if (!alreadyInCart && items.length >= MAX_ORDER_LINES) return false
+
     setItems((current) => {
       const existing = current.find((line) => line.key === key)
       if (existing) {
@@ -66,9 +70,12 @@ export function CartProvider({ children }: { children: ReactNode }) {
             : line
         )
       }
-      return [...current, { ...item, key, quantity: Math.min(MAX_QUANTITY, Math.max(1, quantity)) }]
+      return current.length >= MAX_ORDER_LINES
+        ? current
+        : [...current, { ...item, key, quantity: Math.min(MAX_QUANTITY, Math.max(1, quantity)) }]
     })
-  }, [])
+    return true
+  }, [items])
 
   const setQuantity = useCallback((key: string, quantity: number) => {
     setItems((current) =>

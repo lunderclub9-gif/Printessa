@@ -17,6 +17,18 @@ export function variantCombinationKey(valueIds: string[]): string {
   return [...valueIds].sort().join(',')
 }
 
+/** Returns variants that reference any option value being removed. */
+export function getVariantIdsUsingOptionValues(
+  variants: { id: string; values?: { option_value_id: string }[] }[],
+  optionValueIds: string[]
+): string[] {
+  const targetIds = new Set(optionValueIds)
+  if (targetIds.size === 0) return []
+  return variants
+    .filter((variant) => (variant.values ?? []).some((value) => targetIds.has(value.option_value_id)))
+    .map((variant) => variant.id)
+}
+
 /**
  * Builds active option combinations, checking the cartesian-product size before
  * allocating it so a large option matrix cannot freeze the admin page.

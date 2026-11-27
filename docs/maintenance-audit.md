@@ -49,7 +49,9 @@ or changing production data.
   notification deep links now also handle rejected network requests without leaving the list
   permanently loading.
 - Hardened custom-request quote creation, status changes, quote approval/rejection and the
-  multi-step request/file deletion workflow so interrupted requests remain recoverable.
+  multi-step request/file deletion workflow so interrupted requests remain recoverable. The
+  owner request list and notification deep links now also catch failed network requests and release
+  their loading state.
 - Added an explicit error and retry state to the owner product list instead of presenting a
   failed product query as an empty catalogue.
 - Hardened the delivery administration screen: parallel wilaya data loads are guarded against

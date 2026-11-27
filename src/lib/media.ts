@@ -199,3 +199,19 @@ function findExternalUris(document: unknown): string[] {
   visit(document)
   return found
 }
+
+
+/** Extracts an object path from a public Supabase Storage URL for a known bucket. */
+export function storageObjectPath(
+  url: string,
+  bucket: 'product-images' | 'product-models'
+): string | null {
+  try {
+    const parsed = new URL(url)
+    const marker = `/${bucket}/`
+    const index = parsed.pathname.indexOf(marker)
+    return index >= 0 ? decodeURIComponent(parsed.pathname.slice(index + marker.length)) : null
+  } catch {
+    return null
+  }
+}

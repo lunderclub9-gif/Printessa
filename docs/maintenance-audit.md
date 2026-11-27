@@ -37,6 +37,20 @@ or changing production data.
 - Added cancellation guards to delivery lookups so a slower response for a previous wilaya cannot
   overwrite the current commune or pickup-point lists.
 - Added explicit handling for failed delivery quote and location lookups.
+- Hardened custom-request estimation against slow/stale responses, invalidated old calculations
+  when inputs change, and ensured network failures release the loading state.
+- Hardened custom-request submission, order tracking, quote decisions and order confirmation
+  against thrown network failures while keeping customer-submitted files/cart data available.
+- Hardened the owner dashboard retry flow and settings load/save flow so network failures do not
+  leave permanent loading states or silently replace existing settings with blank values.
+- Made owner sign-out continue even if the audit-event RPC is unavailable.
+
+## Dependency review — outstanding
+
+- GitHub Actions `npm ci` reports 14 dependency vulnerabilities (2 low, 11 moderate, 1 high).
+  Identify the exact affected direct/transitive packages and compatible patched versions before
+  changing the lockfile. Do not run `npm audit fix` blindly because it may introduce breaking
+  dependency upgrades.
 
 ## Database and security review — outstanding
 

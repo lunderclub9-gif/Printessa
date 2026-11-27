@@ -123,8 +123,7 @@ export default function CustomRequestPage() {
       .order('name_fr')
       .then(({ data, error: queryError }) => {
         if (!cancelled) setCommunes(queryError ? [] : (data as Commune[]) ?? [])
-      })
-      , () => {
+      }, () => {
         if (!cancelled) setCommunes([])
       })
     supabase
@@ -134,8 +133,7 @@ export default function CustomRequestPage() {
       .eq('is_active', true)
       .then(({ data, error: queryError }) => {
         if (!cancelled) setPickupPoints(queryError ? [] : (data as PickupPoint[]) ?? [])
-      })
-      , () => {
+      }, () => {
         if (!cancelled) setPickupPoints([])
       })
     return () => {

@@ -79,6 +79,12 @@ export default function StoreLayout() {
       title: page.title,
       description: page.description,
       canonicalUrl: `${window.location.origin}${path}`,
+      noIndex:
+        path === '/boutique/panier' ||
+        path === '/boutique/commande' ||
+        path === '/boutique/suivi' ||
+        path.includes('/confirmation') ||
+        path.endsWith('/suivi'),
     })
   }, [location.pathname])
 

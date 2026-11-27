@@ -44,6 +44,9 @@ export default function CartPage() {
                   {line.variantLabel && (
                     <p className="text-xs text-charcoal-400">{line.variantLabel}</p>
                   )}
+                  {line.selectedColor && (
+                    <p className="text-xs text-charcoal-400">Couleur : {line.selectedColor}</p>
+                  )}
                   <p className="mt-1 text-sm text-charcoal-300">{formatDzd(line.unitPriceDzd)}</p>
 
                   <div className="mt-2 flex items-center gap-3">

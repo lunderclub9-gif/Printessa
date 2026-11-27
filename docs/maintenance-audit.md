@@ -87,6 +87,9 @@ or changing production data.
   between routes, while product/category metadata can override the route defaults. Optional
   description, keywords and social-image tags are removed when absent so a previous product's
   metadata does not leak onto the next page.
+- Customer-specific cart, checkout, order-confirmation and tracking routes now receive
+  `noindex,nofollow` metadata so private customer workflows are not intentionally offered to
+  search engines.
 
 ## Confirmed product behavior gap
 

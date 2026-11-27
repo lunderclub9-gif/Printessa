@@ -277,6 +277,16 @@ export default function ManufacturingPricingPage() {
     )
   }
 
+  if (loadFailed) {
+    return (
+      <div className="animate-fade-in">
+        <h1 className="mb-3 text-2xl font-bold text-offwhite">Tarification fabrication sur mesure</h1>
+        <div role="alert" className="admin-feedback admin-feedback-error mb-4">{error}</div>
+        <button type="button" onClick={() => void load()} className="btn-secondary">Réessayer</button>
+      </div>
+    )
+  }
+
   const numericFields: { key: keyof MfgPricing; label: string; help?: string }[] = [
     { key: 'price_per_hour_dzd', label: 'Tarif horaire facturé (DA/h)' },
     { key: 'machine_hourly_cost_dzd', label: 'Coût machine (DA/h)' },

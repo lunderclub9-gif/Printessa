@@ -73,6 +73,10 @@ or changing production data.
 - Hardened the owner notification center against stale overlapping loads and rejected network
   requests; failed read-state updates now return a recoverable error instead of leaving an
   unhandled promise rejection.
+- Hardened both material-cost and manufacturing-pricing administration: failed initial loads no
+  longer appear as empty catalogues or allow default pricing to be saved; mutations now recover
+  from network errors, and prices, densities, multipliers, stock-related values and quantity
+  discount tiers receive explicit validation.
 - Added a non-blocking dependency-audit report to CI and an isolated npm 11 update workflow.
   The workflow applied compatible non-breaking updates, ran lint/typecheck/tests/build successfully,
   and committed the validated lockfile. The latest CI `npm audit` now reports 0 vulnerabilities

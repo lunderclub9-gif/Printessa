@@ -54,7 +54,16 @@ describe('parseStoredCart', () => {
   })
 
   it('accepts legacy cart lines without a selectedColor field', () => {
-    const { selectedColor: _selectedColor, ...legacyItem } = validItem
+    const legacyItem = {
+      productId: 'product-1',
+      variantId: null,
+      slug: 'objet-3d',
+      name: 'Objet 3D',
+      variantLabel: null,
+      unitPriceDzd: 1200,
+      quantity: 2,
+      imageUrl: null,
+    }
     expect(parseStoredCart(JSON.stringify([legacyItem]))[0].selectedColor).toBeNull()
   })
 

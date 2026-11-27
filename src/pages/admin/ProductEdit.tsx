@@ -282,6 +282,7 @@ export default function AdminProductEdit() {
 
   const deleteImage = async (imageId: string, imageUrl: string) => {
     if (!id || !(await confirmAction({ title: 'Supprimer cette photo ?', description: 'La photo sera retirée de la galerie du produit.', confirmLabel: 'Supprimer la photo', tone: 'danger' }))) return
+    try {
     const image = images.find((item) => item.id === imageId)
     const { error: deleteError } = await supabase.from('product_images').delete().eq('id', imageId).eq('product_id', id)
     if (deleteError) { setError('Impossible de supprimer cette photo. Réessayez.'); return }
@@ -313,10 +314,14 @@ export default function AdminProductEdit() {
       }
     }
     if (isPostHogEnabled) posthog.capture('product_image_deleted', { product_id: id, image_id: imageId })
+    } catch {
+      setError('Connexion interrompue pendant la suppression de la photo. Rechargez la galerie pour vérifier si elle a été retirée; le fichier non confirmé sera conservé.')
+    }
   }
 
   const deleteModel = async () => {
     if (!id || !form.model_url || !(await confirmAction({ title: 'Supprimer le modèle 3D ?', description: 'Le modèle sera retiré du produit. Les photos resteront disponibles.', confirmLabel: 'Supprimer le modèle', tone: 'danger' }))) return
+    try {
     const previousUrl = form.model_url
     const { error: updateError } = await supabase.from('products').update({ model_url: null }).eq('id', id)
     if (updateError) { setError('Impossible de retirer le modèle 3D du produit.'); return }
@@ -330,6 +335,9 @@ export default function AdminProductEdit() {
         const { error: storageError } = await supabase.storage.from('product-models').remove([path])
         if (storageError) setError('Le modèle a été retiré du produit, mais son fichier reste dans le stockage et devra être nettoyé.')
       }
+    }
+    } catch {
+      setError('Connexion interrompue pendant la suppression du modèle 3D. Rechargez le produit pour vérifier son état; le fichier non confirmé sera conservé.')
     }
   }
 

@@ -468,6 +468,13 @@ export default function AdminProductEdit() {
 
   const deleteOptionValue = async (valueId: string) => {
     if (!id) return
+    const value = options.flatMap((option) => option.values ?? []).find((item) => item.id === valueId)
+    if (!(await confirmAction({
+      title: 'Supprimer cette valeur ?',
+      description: `La valeur « ${value?.value ?? 'sélectionnée'} » sera retirée des choix et variantes associées.`,
+      confirmLabel: 'Supprimer la valeur',
+      tone: 'danger',
+    }))) return
     try {
       const { error: deleteError } = await supabase.from('product_option_values').delete().eq('id', valueId)
       if (deleteError) {
@@ -758,6 +765,13 @@ export default function AdminProductEdit() {
 
   const deleteVariant = async (variantId: string) => {
     if (!id) return
+    const variant = variants.find((item) => item.id === variantId)
+    if (!(await confirmAction({
+      title: 'Supprimer cette variante ?',
+      description: `La variante « ${variantLabel(variant ?? { id: variantId, product_id: id, sku: null, label: null, price_dzd: null, stock_quantity: 0, made_to_order: null, is_active: false, values: [] })} » sera supprimée.`,
+      confirmLabel: 'Supprimer la variante',
+      tone: 'danger',
+    }))) return
     try {
       const { error: deleteError } = await supabase.from('product_variants').delete().eq('id', variantId)
       if (deleteError) {

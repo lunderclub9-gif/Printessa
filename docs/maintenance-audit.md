@@ -136,6 +136,14 @@ or changing production data.
   preservation decision, the files were not renamed or rewritten; no migration deployment is safe
   until the conflict and remote history are reconciled.
 
+## Client rebranding still required before delivery
+
+- The repository is the separate Printessa client copy, but `index.html`, the storefront layout,
+  homepage, footer and static SEO generator still contain LUNDER's 3D Studio name and copy.
+  This inherited branding must be replaced with the client's confirmed name, logo, palette and
+  approved business content before public launch. Do not invent client contact details, claims,
+  colors or logo artwork while doing technical maintenance.
+
 ## Remaining product data-model improvement
 
 - For products using the legacy `available_colors` field without structured option variants,

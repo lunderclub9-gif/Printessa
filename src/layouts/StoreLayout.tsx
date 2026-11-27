@@ -24,25 +24,29 @@ export default function StoreLayout() {
   const [settings, setSettings] = useState<Record<string, string>>({})
 
   useEffect(() => {
-    supabase
-      .from('store_settings')
-      .select('key, value')
-      .eq('is_public', true)
-      .then(({ data, error }) => {
-        // Un réglage indisponible ne doit jamais casser la boutique : on garde
-        // les valeurs par défaut et on continue.
-        if (error) {
-          console.error('[LUNDER] réglages de la boutique indisponibles')
-          setSettings({})
-          return
-        }
-
+    let active = true
+    const loadSettings = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('store_settings')
+          .select('key, value')
+          .eq('is_public', true)
+        if (error) throw error
+        if (!active) return
         const next: Record<string, string> = {}
         ;((data as { key: string; value: string | null }[]) ?? []).forEach((row) => {
           if (row.value) next[row.key] = row.value
         })
         setSettings(next)
-      })
+      } catch {
+        // Public settings are optional; keep the storefront usable with safe defaults.
+        if (active) setSettings({})
+      }
+    }
+    void loadSettings()
+    return () => {
+      active = false
+    }
   }, [])
 
   const telHref = toTelHref(settings.phone)

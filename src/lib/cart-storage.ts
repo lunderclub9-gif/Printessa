@@ -12,6 +12,7 @@ export type CartItem = {
 }
 
 const MAX_QUANTITY = 10
+export const MAX_ORDER_LINES = 20
 const MAX_CART_LINES = 50
 
 export function cartLineKey(productId: string, variantId: string | null, selectedColor: string | null): string {

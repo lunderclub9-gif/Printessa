@@ -30,6 +30,9 @@ Printessa should make three journeys feel effortless:
 
 - Make product options and variants unmistakable: selected values, unavailable combinations,
   price changes, stock and made-to-order status should be visible before adding to cart.
+- Persist legacy color selections in the validated order-item snapshot too; the current UI can
+  display a selected color that is not yet carried through the guest-order RPC. Implement this
+  only with a forward migration after production migration history is reconciled.
 - Keep the cart understandable on mobile, preserve it across refreshes and clearly explain that
   final prices and delivery are verified server-side.
 - Improve checkout feedback: show when wilaya/commune data is loading, when a destination has no

@@ -192,7 +192,6 @@ export default function CustomRequestPage() {
       setEstimate(null)
       setEstimateError('Connexion interrompue pendant le calcul. Vérifiez votre connexion puis réessayez.')
     }
-  }
   }, [lengthMm, widthMm, heightMm, material, quantity, options, rush])
 
   useEffect(() => {

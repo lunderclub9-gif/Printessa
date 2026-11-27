@@ -139,33 +139,45 @@ Both are **public** — they ship to the browser. Never put a `service_role` key
 or any API secret in `.env`, in `store_settings`, or in client code. On a hosting provider, set
 secrets in that provider's secret store.
 
-## Migrations — apply in this order
+## Migrations — apply in timestamp order
 
-Run these against the Supabase project (SQL editor or `supabase db push`), **in filename order**.
-Later files depend on `public.is_owner()` and on the tables created earlier.
+Supabase applies migration files by their leading timestamp, not by the human-readable
+sequence number in the filename. Apply all files below in this exact order on a fresh,
+isolated Supabase project. The numeric labels **015 and 016 are out of order** relative
+to their timestamps; do not rename already-applied migrations because Supabase records
+their version identifiers.
 
-| File | Creates | Depends on |
-|---|---|---|
-| `20261112190919_001_lunders_catalog_and_auth.sql` | profiles, categories, products, product_images, storage buckets | — |
-| `20261112193000_002_owner_access_and_profile_hardening.sql` | `is_owner()`, role-change guard, owner read policies | 001 |
-| `20261112200000_003_catalog_variants_and_media_limits.sql` | product options/variants, bucket size + MIME limits | 002 |
-| `20261112210000_004_algeria_geography.sql` | wilayas (69) and communes (1 541), seeded | 002 |
-| `20261112211000_005_delivery_and_orders.sql` | delivery rates, pickup points, orders, quote/order functions | 004 |
-| `20261112220000_006_custom_requests_and_quotes.sql` | private intake bucket, requests, files, versioned quotes | 005 |
-| `20261112230000_007_costs_settings_and_audit.sql` | materials, product costs, store settings, audit log | 002, 003, 005, 006 |
-| `20261113140000_008_auto_manufacturing_pricing.sql` | manufacturing materials/pricing, automatic quote, decision, delete RPC | 007 |
-| `20261113150000_009_order_archive_source_and_security.sql` | order archive columns, source, soft-delete, owner-only quote generation | 008 |
-| `20261113160000_010_pricing_security_and_public_estimate.sql` | revoke public pricing access, safe materials view, public estimate RPC | 009 |
-| `20261113170000_011_custom_workflow_and_delivered_deletion.sql` | dimension estimate, client decision history, owner approval, delivered-order deletion | 010 |
-| `20261113180000_012_owner_approval_and_safe_request_deletion.sql` | remove legacy public order-creation RPC, allow owner approval of `sent` quotes, two-phase deletion of eligible unlinked requests | 011 |
-| `20261114224500_013_owner_notifications.sql` | owner notification counters and notification RPC | 012 |
-| `20261122120000_014_product_seo_keywords.sql` | product SEO keyword array | 001 |
-| `20261122123000_015_category_seo_metadata.sql` | category SEO title, description and keyword fields | 001 |
+| Timestamp order | File | Purpose |
+|---:|---|---|
+| 1 | `20261112190919_001_lunders_catalog_and_auth.sql` | Core profiles, catalog and storage |
+| 2 | `20261112193000_002_owner_access_and_profile_hardening.sql` | Owner authorization and profile hardening |
+| 3 | `20261112200000_003_catalog_variants_and_media_limits.sql` | Product options, variants and media limits |
+| 4 | `20261112210000_004_algeria_geography.sql` | Wilaya and commune reference data |
+| 5 | `20261112211000_005_delivery_and_orders.sql` | Delivery, orders and checkout functions |
+| 6 | `20261112220000_006_custom_requests_and_quotes.sql` | Custom requests, files and quotes |
+| 7 | `20261112230000_007_costs_settings_and_audit.sql` | Costs, settings and audit log |
+| 8 | `20261113140000_008_auto_manufacturing_pricing.sql` | Manufacturing pricing and quote workflow |
+| 9 | `20261113150000_009_order_archive_source_and_security.sql` | Order archive/source fields and security |
+| 10 | `20261113160000_010_pricing_security_and_public_estimate.sql` | Pricing access hardening and public estimates |
+| 11 | `20261113170000_011_custom_workflow_and_delivered_deletion.sql` | Custom workflow, approvals and delivered-order deletion |
+| 12 | `20261113180000_012_owner_approval_and_safe_request_deletion.sql` | Owner approval and guarded request deletion |
+| 13 | `20261114224500_013_owner_notifications.sql` | Owner notifications |
+| 14 | `20261122120000_014_product_seo_keywords.sql` | Product SEO keywords |
+| 15 | `20261122120000_016_flexible_custom_requests.sql` | Flexible custom-request intake |
+| 16 | `20261122123000_015_category_seo_metadata.sql` | Category SEO metadata |
+| 17 | `20261122130000_017_order_level_manufacturing_pricing.sql` | Order-level manufacturing pricing and public quote breakdown |
+| 18 | `20261126150000_018_product_variant_images.sql` | Optional image per product variant |
+| 19 | `20261127143000_019_order_variant_option_snapshot.sql` | Snapshot selected variant options on order items |
+| 20 | `20261127160000_020_product_option_value_images.sql` | Optional image per option value |
 
-Every file is safe to re-run: tables use `IF NOT EXISTS`, policies are dropped before creation, and
-seed rows use `ON CONFLICT DO NOTHING`.
+Do not treat these migrations as universally safe to re-run. Some statements are
+idempotent, but functions, triggers, data backfills and permission changes must be
+reviewed in context. Validate the complete chain against a disposable database before
+using it with customer or production data.
 
-The SEO build reads published products, product images, active categories and public SEO settings through the Supabase anon key. Set `VITE_SITE_URL` (or the public `seo_site_url` setting) so the build can emit canonical URLs, per-product/per-category HTML metadata, Product/CollectionPage JSON-LD, `sitemap.xml` and `robots.txt`. If the URL is missing, the app build still succeeds but the static SEO output is skipped. Apply migrations 014 and 015 before using product/category SEO keyword fields in the admin.
+Migration idempotency is statement-specific. `IF NOT EXISTS` and conflict handling do not make an entire migration safe to replay; review function, trigger, backfill and privilege statements before re-running any file.
+
+The SEO build reads published products, product images, active categories and public SEO settings through the Supabase anon key. Set `VITE_SITE_URL` (or the public `seo_site_url` setting) so the build can emit canonical URLs, per-product/per-category HTML metadata, Product/CollectionPage JSON-LD, `sitemap.xml` and `robots.txt`. If the URL is missing, the app build still succeeds but the static SEO output is skipped. Apply migrations 014 and 015 (in timestamp order shown above) before using product/category SEO keyword fields in the admin.
 
 The geography dataset is the 69-wilaya structure of Loi 26-06 (4 April 2026), sourced from
 `el-amin-dev/algeria-wilayas-communes` and retrieved 12 Nov 2026. Wilayas 59–69 are legally in force
@@ -268,8 +280,7 @@ pas supprimables par cette action.
   without separate approval.
 - **Automated coverage is partial.** `npm test` runs the Vitest unit suite; it does not exercise RLS,
   Postgres RPC transactions, Storage permissions, end-to-end customer flows or mobile layouts.
-- **Admin notifications remain incomplete.** The dashboard now uses real counters through an owner-only
-  RPC, but there is no durable read/unread notification center or event-driven notification delivery.
+- **Notification delivery needs end-to-end verification.** The repository contains an owner notification provider and notification center; verify persistence, realtime/fallback refresh, read state, and preference handling against an isolated Supabase project.
 - **Storage deletion race is not fully closed.** The final RPC checks that the known request objects are
   absent, but anonymous bucket inserts are not serialized against that check. Do not deploy request
   deletion until uploads are bound to server-issued sessions or an equivalent reconciliation/cleanup

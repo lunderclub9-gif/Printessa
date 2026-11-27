@@ -12,6 +12,7 @@ import {
 } from '@/lib/supabase'
 import { slugify, generateSku } from '@/lib/format'
 import { validateImage, validateModel } from '@/lib/media'
+import { buildVariantCombinations, variantCombinationKey } from '@/lib/product-variants'
 import posthog, { isPostHogEnabled } from '@/lib/posthog'
 
 export default function AdminProductEdit() {
@@ -360,8 +361,8 @@ export default function AdminProductEdit() {
     const shape = shapeOption?.values?.find((v) => v.id === selectedShapeId)
     const chosen = (colorOption?.values ?? []).filter((v) => selectedColorIds.includes(v.id) && v.is_active)
     if (!shape || !chosen.length) { setError('Choisissez une forme et au moins une couleur.'); return }
-    const existing = new Set(variants.map((v) => (v.values ?? []).map((x) => x.option_value_id).sort().join(',')))
-    const missing = chosen.filter((color) => !existing.has([shape.id, color.id].sort().join(',')))
+    const existing = new Set(variants.map((variant) => variantCombinationKey((variant.values ?? []).map((item) => item.option_value_id))))
+    const missing = chosen.filter((color) => !existing.has(variantCombinationKey([shape.id, color.id])))
     if (!missing.length) { setError('Ces variantes existent déjà.'); return }
     const price = variantPrice.trim() ? Math.round(Number(variantPrice)) : null
     const stock = Number(variantStock)
@@ -451,41 +452,23 @@ export default function AdminProductEdit() {
 
   const createAllVariantCombinations = async () => {
     if (!id || options.length === 0) return
-    const optionValues = options.map((option) => ({
-      option,
-      values: (option.values ?? []).filter((value) => value.is_active),
-    }))
-    if (optionValues.some((item) => item.values.length === 0)) {
+    const result = buildVariantCombinations(
+      options.map((option) => ({ id: option.id, values: option.values ?? [] }))
+    )
+    if (result.reason === 'empty-options') return
+    if (result.reason === 'missing-values') {
       setError('Ajoutez au moins une valeur active pour chaque option.')
       return
     }
-
-    const combinations: { valueIds: string[]; label: string }[] = []
-    const build = (index: number, selected: { optionId: string; valueId: string; label: string }[]) => {
-      if (index === optionValues.length) {
-        combinations.push({
-          valueIds: selected.map((item) => item.valueId),
-          label: selected.map((item) => item.label).join(' / '),
-        })
-        return
-      }
-      const current = optionValues[index]
-      current.values.forEach((value) => build(index + 1, [
-        ...selected,
-        { optionId: current.option.id, valueId: value.id, label: value.value },
-      ]))
-    }
-    build(0, [])
-
-    if (combinations.length > 100) {
+    if (result.reason === 'limit-exceeded') {
       setError('Cette configuration crée plus de 100 variantes. Réduisez les valeurs ou créez les variantes nécessaires manuellement.')
       return
     }
 
     const existing = new Set(variants.map((variant) =>
-      (variant.values ?? []).map((item) => item.option_value_id).sort().join(',')
+      variantCombinationKey((variant.values ?? []).map((item) => item.option_value_id))
     ))
-    const missing = combinations.filter((item) => !existing.has([...item.valueIds].sort().join(',')))
+    const missing = result.combinations.filter((item) => !existing.has(variantCombinationKey(item.valueIds)))
     if (missing.length === 0) {
       setError('Toutes les combinaisons existent déjà.')
       return
@@ -548,13 +531,10 @@ export default function AdminProductEdit() {
     if (!id || !combinationComplete) return
     setError(null)
 
-    const signature = [...selectedValueIds].sort().join(',')
+    const signature = variantCombinationKey(selectedValueIds)
     const duplicate = variants.some(
       (variant) =>
-        (variant.values ?? [])
-          .map((item) => item.option_value_id)
-          .sort()
-          .join(',') === signature
+        variantCombinationKey((variant.values ?? []).map((item) => item.option_value_id)) === signature
     )
     if (duplicate) {
       setError('Cette combinaison existe déjà.')

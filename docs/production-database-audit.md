@@ -96,3 +96,27 @@ CI run, so this change is not yet marked verified.
 6. Run lint, typecheck, unit tests, and production build on the final commit.
 
 No production changes should be made until these checks pass.
+
+
+## Migration handling decision — 2026-11-28
+
+The requested approach is to keep the existing migration files and their execution order.
+Do not consolidate them into five files, rename them, or move them out of `supabase/migrations`.
+
+The 20 migration files are retained exactly as they are unless a specific, demonstrated defect
+is found. Review them for:
+- SQL syntax or dependency-order failures;
+- statements that cannot run safely on a clean test database;
+- accidental duplicate objects or policies that are not intentional replacements;
+- references to missing tables, columns, functions, roles, or extensions;
+- insecure grants, RLS gaps, or public exposure;
+- data-seed omissions or destructive operations without a safe reason.
+
+Repeated `CREATE OR REPLACE` definitions, explicit `DROP ... IF EXISTS` followed by replacement,
+and later hardening migrations are not to be removed merely because they look repetitive.
+They may be intentional upgrades. In particular, preserve the Algeria geography dataset and
+all security revocations/trigger changes unless a reproducible test proves a defect.
+
+The production migration-history mismatch remains a separate deployment blocker: investigate
+and reconcile it without rewriting the repository's historical migration files. No production
+migration has been applied as part of this review.

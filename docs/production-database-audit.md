@@ -35,6 +35,34 @@ rewritten. CI now emits a non-blocking warning for duplicate migration versions.
 approval for the minimal filename/version correction only after comparing the production schema
 and the actual migration contents; do not attempt to push or mark either version as applied now.
 
+## Read-only live-schema spot check — 2026-11-28
+
+A follow-up `information_schema.columns` query confirmed that the live schema is mixed rather
+than a clean match for either the 20-file repository history or the two remote migration records:
+
+| Object | Live observation |
+|---|---|
+| `products` | Has `seo_title` and `seo_description`, but no `seo_keywords` |
+| `categories` | Has only core category columns; `seo_title`, `seo_description` and `seo_keywords` are absent |
+| `product_variants` | `image_url` is absent |
+| `product_option_values` | `image_url` is absent |
+| `order_items` | Has `variant_id` and `variant_label` |
+| `custom_requests` | Has manufacturing options and deletion-token columns |
+| `owner_notifications` | Table and notification columns exist |
+| `set_order_item_variant_label()` | Function is absent from the live database |
+
+The live function check also confirmed that `update_updated_at()`, `next_order_number()` and
+`customer_quote_breakdown(jsonb)` are not SECURITY DEFINER, but have no pinned function
+configuration; both `anon` and `authenticated` currently have EXECUTE on them. Their current
+advisor finding is about mutable `search_path`, not proof of a SECURITY DEFINER privilege
+escalation.
+
+This mixed state is evidence of schema drift: some later workflow columns/tables exist, while
+several later repository additions are absent. It does not identify which SQL statements were
+applied manually or from another branch. Do not infer migration application from the presence of
+one column/table. Continue with a full object-by-object comparison and keep all deployment
+operations blocked.
+
 ## Security advisor findings
 
 Read-only Supabase security advisors returned:

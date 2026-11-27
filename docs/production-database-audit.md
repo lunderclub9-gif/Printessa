@@ -84,16 +84,33 @@ configured as a security-invoker view. Confirm the intended public data contract
 | Multiple permissive policies | 22 | Review overlap and combine only when the combined predicate preserves the exact access rules. |
 | Unused indexes | 6 | Do not remove based on this snapshot alone; confirm a representative workload and sufficient observation period. |
 
-## Source-level change made on this branch
+## Source-level verification on the maintenance branch
 
-`src/pages/admin/AdminLogin.tsx` now handles unexpected network/runtime failures with a
-`try/catch/finally`, always releases the submitting state, verifies the authenticated user ID
-before loading the profile, signs out if owner verification fails, and does not block a valid
-owner login merely because the optional login-audit RPC is temporarily unavailable.
+The source review has expanded beyond the original owner-login hardening. It now includes the
+customer browse/cart/checkout/tracking/custom-request journeys and owner product, order, delivery,
+request, notification, material-cost and manufacturing-pricing workflows. The detailed changes
+and known limitations are recorded in `docs/maintenance-audit.md`.
 
-This source change is committed as `42f40179941939b026935f23485a6e89b13cccdb`. The previous CI
-run passed on `d833d1f94dd8330b4464f0ced3bb067206ccb7a2`; the new commit has not yet received a
-CI run, so this change is not yet marked verified.
+The latest fully successful CI run checked commit
+`b429c54c08ff7dc1c13b35ebe173d81777d89acd` and passed lint, typecheck, unit tests and production
+build. Its `npm ci` step reported zero vulnerabilities; the separate dependency report showed
+zero advisories at all severities. Documentation-only follow-up commit
+`3614ce493bb336fe5140b0947de74ddaf9117d6e` corrects stale audit wording and is awaiting its own
+CI run.
+
+## Additional source migration review finding
+
+Migration `20261127143000_019_order_variant_option_snapshot.sql` creates
+`public.set_order_item_variant_label()` as a SECURITY DEFINER trigger function with a pinned
+`search_path`, but does not explicitly revoke the default EXECUTE grant from PUBLIC/anon/authenticated.
+This function is intended to run only through its trigger, not as a client RPC. Add an explicit
+least-privilege revoke in a new forward migration after testing the trigger path on an isolated
+database. Do not edit the historical migration file or change production grants during this audit.
+
+The live `manufacturing_materials_public` view remains a separate security-advisor concern: its
+underlying table policies and intended public read contract must be tested before converting it to
+a security-invoker view. The production advisor counts describe the live database snapshot and
+must not be assumed to match the repository migration set while migration history is unresolved.
 
 ## Required verification before merge or deployment
 

@@ -711,7 +711,7 @@ export default function CustomRequestPage() {
           )}
         </div>
 
-        {estimateAccepted && (
+        {(!estimate || estimateAccepted) && (
           <>
             <div className="admin-card">
               <h2 className="mb-4 text-lg font-semibold text-offwhite">Vos coordonnées</h2>

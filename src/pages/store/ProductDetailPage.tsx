@@ -28,6 +28,7 @@ export default function ProductDetailPage() {
   const [selectedColor, setSelectedColor] = useState<string | null>(null)
   const [selection, setSelection] = useState<Record<string, string>>({})
   const [added, setAdded] = useState(false)
+  const [cartLimitError, setCartLimitError] = useState<string | null>(null)
   const { add } = useCart()
 
   useEffect(() => {
@@ -233,7 +234,7 @@ export default function ProductDetailPage() {
 
   const handleAddToCart = () => {
     if (!product || !inStock) return
-    add({
+    const accepted = add({
       productId: product.id,
       variantId: matchedVariant?.id ?? null,
       slug: product.slug,
@@ -243,6 +244,11 @@ export default function ProductDetailPage() {
       unitPriceDzd: displayPrice,
       imageUrl: activeImage,
     })
+    if (!accepted) {
+      setCartLimitError('Votre panier contient déjà 20 références différentes. Retirez un article avant d’en ajouter un autre.')
+      return
+    }
+    setCartLimitError(null)
     setAdded(true)
     window.setTimeout(() => setAdded(false), 3000)
   }
@@ -428,6 +434,9 @@ export default function ProductDetailPage() {
                 Voir le panier
               </Link>
             </div>
+            {cartLimitError && (
+              <p role="alert" className="text-sm text-brand-red-light">{cartLimitError}</p>
+            )}
             {added && (
               <p role="status" className="text-sm text-green-400">
                 Ajouté au panier.

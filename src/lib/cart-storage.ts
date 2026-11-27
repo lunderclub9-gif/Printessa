@@ -5,6 +5,7 @@ export type CartItem = {
   slug: string
   name: string
   variantLabel: string | null
+  selectedColor: string | null
   unitPriceDzd: number
   quantity: number
   imageUrl: string | null
@@ -12,6 +13,11 @@ export type CartItem = {
 
 const MAX_QUANTITY = 10
 const MAX_CART_LINES = 50
+
+export function cartLineKey(productId: string, variantId: string | null, selectedColor: string | null): string {
+  const base = `${productId}::${variantId ?? 'base'}`
+  return selectedColor ? `${base}::color:${selectedColor.trim().toLocaleLowerCase()}` : base
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -35,19 +41,22 @@ export function parseStoredCart(raw: string | null): CartItem[] {
     for (const candidate of parsed.slice(0, MAX_CART_LINES)) {
       if (!isRecord(candidate)) continue
 
-      const { productId, variantId, slug, name, variantLabel, unitPriceDzd, quantity, imageUrl } = candidate
+      const { productId, variantId, slug, name, variantLabel, selectedColor, unitPriceDzd, quantity, imageUrl } = candidate
       if (
         typeof productId !== 'string' || !productId.trim() ||
         !(variantId === null || typeof variantId === 'string') ||
         typeof slug !== 'string' || !slug.trim() ||
         typeof name !== 'string' || !name.trim() ||
         !optionalString(variantLabel) ||
+        !(selectedColor === undefined || optionalString(selectedColor)) ||
+        (typeof selectedColor === 'string' && (selectedColor.trim().length === 0 || selectedColor.length > 80)) ||
         !optionalString(imageUrl) ||
         typeof unitPriceDzd !== 'number' || !Number.isFinite(unitPriceDzd) || unitPriceDzd < 0 ||
         typeof quantity !== 'number' || !Number.isFinite(quantity) || !Number.isInteger(quantity) || quantity < 1
       ) continue
 
-      const key = `${productId}::${variantId ?? 'base'}`
+      const normalizedColor = typeof selectedColor === 'string' ? selectedColor.trim() : null
+      const key = cartLineKey(productId, variantId, normalizedColor)
       if (seen.has(key)) continue
       seen.add(key)
       items.push({
@@ -57,6 +66,7 @@ export function parseStoredCart(raw: string | null): CartItem[] {
         slug,
         name,
         variantLabel,
+        selectedColor: normalizedColor,
         unitPriceDzd,
         quantity: Math.min(MAX_QUANTITY, quantity),
         imageUrl,

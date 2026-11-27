@@ -124,7 +124,7 @@ export default function CustomRequestPage() {
       .then(({ data, error: queryError }) => {
         if (!cancelled) setCommunes(queryError ? [] : (data as Commune[]) ?? [])
       })
-      .catch(() => {
+      , () => {
         if (!cancelled) setCommunes([])
       })
     supabase
@@ -135,7 +135,7 @@ export default function CustomRequestPage() {
       .then(({ data, error: queryError }) => {
         if (!cancelled) setPickupPoints(queryError ? [] : (data as PickupPoint[]) ?? [])
       })
-      .catch(() => {
+      , () => {
         if (!cancelled) setPickupPoints([])
       })
     return () => {

@@ -60,7 +60,7 @@ export default function CheckoutPage() {
         if (cancelled) return
         setWilayas(queryError ? [] : (data as Wilaya[]) ?? [])
       })
-      .catch(() => {
+      , () => {
         if (!cancelled) setWilayas([])
       })
 
@@ -87,7 +87,7 @@ export default function CheckoutPage() {
       .then(({ data, error: queryError }) => {
         if (!cancelled) setCommunes(queryError ? [] : (data as Commune[]) ?? [])
       })
-      .catch(() => {
+      , () => {
         if (!cancelled) setCommunes([])
       })
 
@@ -100,7 +100,7 @@ export default function CheckoutPage() {
       .then(({ data, error: queryError }) => {
         if (!cancelled) setPickupPoints(queryError ? [] : (data as PickupPoint[]) ?? [])
       })
-      .catch(() => {
+      , () => {
         if (!cancelled) setPickupPoints([])
       })
 
@@ -136,7 +136,7 @@ export default function CheckoutPage() {
         }
         setQuote(row)
       })
-      .catch(() => {
+      , () => {
         if (!cancelled) {
           setQuoteError("Impossible de calculer les frais de livraison. Vérifiez votre connexion puis réessayez.")
         }

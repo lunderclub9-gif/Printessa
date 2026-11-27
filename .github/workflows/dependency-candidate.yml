@@ -23,7 +23,7 @@ jobs:
           node-version: 22
           cache: npm
       - name: Resolve non-breaking security updates
-        run: npm audit fix --package-lock-only
+        run: npm audit fix
       - name: Install updated lockfile
         run: npm ci
       - name: Lint

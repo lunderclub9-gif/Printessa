@@ -68,8 +68,10 @@ or changing production data.
 - Hardened the owner notification center against stale overlapping loads and rejected network
   requests; failed read-state updates now return a recoverable error instead of leaving an
   unhandled promise rejection.
-- Added a non-blocking dependency-audit report to CI so the exact affected package names,
-  severity, vulnerable ranges and available fixes can be reviewed before changing the lockfile.
+- Added a non-blocking dependency-audit report to CI and an isolated npm 11 update workflow.
+  The workflow applied compatible non-breaking updates, ran lint/typecheck/tests/build successfully,
+  and committed the validated lockfile. The latest CI `npm audit` now reports 0 vulnerabilities
+  (previously 14: 2 low, 11 moderate, 1 high).
 - Fixed a customer-facing cart defect for products using the legacy `available_colors` field:
   choosing two different colors for the same base product now creates distinct cart lines instead
   of merging quantities. The selected color survives local-storage reloads and is carried into the

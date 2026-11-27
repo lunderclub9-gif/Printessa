@@ -107,6 +107,7 @@ export default function ProductCostMaterialsPage() {
           <div><h2 className="text-lg font-semibold text-offwhite">Catalogue des matières</h2><p className="text-xs text-charcoal-400">Catalogue interne · coût d’achat par kg</p></div>
         </div>
         {loading ? <div className="flex justify-center py-10"><Loader2 className="h-7 w-7 animate-spin text-brand-red" /></div> :
+          loadFailed ? null :
           materials.length === 0 ? <p className="py-6 text-sm text-charcoal-400">Aucune matière enregistrée.</p> :
           <ul className="mb-6 divide-y divide-charcoal-400/10">
             {materials.map((material) => <li key={material.id} className="flex flex-wrap items-center justify-between gap-3 py-3">

@@ -28,7 +28,7 @@ export default function CategoryPage() {
       const current = categoryData as Category
       const { data: productData } = await supabase
         .from('products')
-        .select('*, category:categories(*), product_images(*)')
+        .select('*, category:categories(*), product_images(*), product_options(id, values:product_option_values(is_active)), product_variants(stock_quantity,made_to_order,is_active)')
         .eq('category_id', current.id)
         .eq('status', 'published')
         .order('created_at', { ascending: false })

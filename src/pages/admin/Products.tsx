@@ -10,6 +10,7 @@ export default function AdminProducts() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
   const confirmAction = useAdminConfirm()
 
   useEffect(() => {
@@ -18,12 +19,22 @@ export default function AdminProducts() {
 
   const loadProducts = async () => {
     setLoading(true)
-    const { data } = await supabase
-      .from('products')
-      .select('*, category:categories(*)')
-      .order('created_at', { ascending: false })
-    setProducts((data as Product[]) ?? [])
-    setLoading(false)
+    setError(null)
+    try {
+      const { data, error: queryError } = await supabase
+        .from('products')
+        .select('*, category:categories(*)')
+        .order('created_at', { ascending: false })
+      if (queryError) {
+        setError('Impossible de charger les produits. Réessayez après avoir vérifié la connexion.')
+        return
+      }
+      setProducts((data as Product[]) ?? [])
+    } catch {
+      setError('Connexion interrompue. Impossible de charger les produits.')
+    } finally {
+      setLoading(false)
+    }
   }
 
   const deleteProduct = async (product: Product) => {
@@ -91,6 +102,13 @@ export default function AdminProducts() {
           Ajouter un produit
         </Link>
       </div>
+
+      {error && (
+        <div role="alert" className="admin-feedback admin-feedback-error mb-4 flex flex-wrap items-center justify-between gap-3">
+          <span>{error}</span>
+          <button type="button" onClick={() => void loadProducts()} className="btn-secondary">Réessayer</button>
+        </div>
+      )}
 
       <div className="mb-4 relative max-w-sm">
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-charcoal-400" />

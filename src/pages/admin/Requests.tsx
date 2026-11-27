@@ -125,24 +125,37 @@ export default function AdminRequests() {
   const load = useCallback(async () => {
     const sequence = ++requestLoadSequence.current
     setLoading(true)
-    let requestQuery = supabase.from('custom_requests').select(REQUEST_SELECT)
-    requestQuery = view === 'approved'
-      ? requestQuery.eq('status', 'approved')
-      : requestQuery.neq('status', 'approved')
-    const [{ data, error: queryError }, { data: mats }] = await Promise.all([
-      requestQuery.order('created_at', { ascending: false }).limit(100),
-      supabase.from('manufacturing_materials').select('name').eq('is_available', true).order('name'),
-    ])
-    if (sequence !== requestLoadSequence.current) return
-    if (queryError) {
-      setError('Impossible de charger les demandes.')
-      setRequests([])
-    } else {
-      setError(null)
-      setRequests((data as RequestRow[]) ?? [])
+    try {
+      let requestQuery = supabase.from('custom_requests').select(REQUEST_SELECT)
+      requestQuery = view === 'approved'
+        ? requestQuery.eq('status', 'approved')
+        : requestQuery.neq('status', 'approved')
+      const [requestResult, materialResult] = await Promise.all([
+        requestQuery.order('created_at', { ascending: false }).limit(100),
+        supabase.from('manufacturing_materials').select('name').eq('is_available', true).order('name'),
+      ])
+      if (sequence !== requestLoadSequence.current) return
+      if (requestResult.error) {
+        setError('Impossible de charger les demandes.')
+        setRequests([])
+      } else {
+        setError(null)
+        setRequests((requestResult.data as RequestRow[]) ?? [])
+      }
+      if (materialResult.error) {
+        setError('Les demandes sont chargées, mais la liste des matériaux est indisponible.')
+        setMaterials([])
+      } else {
+        setMaterials((materialResult.data as { name: string }[]) ?? [])
+      }
+    } catch {
+      if (sequence === requestLoadSequence.current) {
+        setError('Connexion interrompue pendant le chargement des demandes.')
+        setRequests([])
+      }
+    } finally {
+      if (sequence === requestLoadSequence.current) setLoading(false)
     }
-    setMaterials((mats as { name: string }[]) ?? [])
-    setLoading(false)
   }, [view])
 
   useEffect(() => {
@@ -159,12 +172,13 @@ export default function AdminRequests() {
       return
     }
 
-    void supabase
-      .from('custom_requests')
-      .select(REQUEST_SELECT)
-      .eq('id', requestedRequestId)
-      .maybeSingle()
-      .then(({ data, error: targetError }) => {
+    const loadRequestedRequest = async () => {
+      try {
+        const { data, error: targetError } = await supabase
+          .from('custom_requests')
+          .select(REQUEST_SELECT)
+          .eq('id', requestedRequestId)
+          .maybeSingle()
         if (new URLSearchParams(window.location.search).get('request') !== requestedRequestId) return
         if (targetError || !data) {
           setError('La demande liée à cette notification est introuvable ou n’est plus accessible.')
@@ -175,7 +189,13 @@ export default function AdminRequests() {
         else if (target.status !== 'approved' && view === 'approved') setView('active')
         setRequests((current) => [target, ...current.filter((item) => item.id !== target.id)])
         setExpanded(target.id)
-      })
+      } catch {
+        if (new URLSearchParams(window.location.search).get('request') === requestedRequestId) {
+          setError('Connexion interrompue. Impossible de charger la demande liée à cette notification.')
+        }
+      }
+    }
+    void loadRequestedRequest()
   }, [loading, requests, requestedRequestId, view])
 
   const openNewQuote = (request: RequestRow) => {

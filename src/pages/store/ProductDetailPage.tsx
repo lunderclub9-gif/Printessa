@@ -239,6 +239,7 @@ export default function ProductDetailPage() {
       slug: product.slug,
       name: product.name,
       variantLabel: selectedVariantLabel || null,
+      selectedColor: selectableOptions.length === 0 ? selectedColor : null,
       unitPriceDzd: displayPrice,
       imageUrl: activeImage,
     })

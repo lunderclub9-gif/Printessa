@@ -376,46 +376,49 @@ export default function AdminRequests() {
     if (!(await confirmAction({ title: 'Confirmer la suppression de la demande ?', description: confirmation, confirmLabel: 'Continuer la suppression', tone: 'danger' }))) return
 
     setBusy(true)
-    const { data, error: beginError } = await supabase.rpc('begin_custom_request_deletion', {
-      p_request_id: request.id,
-    })
-    if (beginError || !data) {
-      setBusy(false)
-      setError(orderErrorMessage(beginError?.message, 'Impossible de préparer la suppression de cette demande.'))
-      return
-    }
+    try {
+      const { data, error: beginError } = await supabase.rpc('begin_custom_request_deletion', {
+        p_request_id: request.id,
+      })
+      if (beginError || !data) {
+        setError(orderErrorMessage(beginError?.message, 'Impossible de préparer la suppression de cette demande.'))
+        return
+      }
 
-    const deletion = data as { deletion_token?: string; file_paths?: string[] }
-    const filePaths = Array.isArray(deletion.file_paths) ? deletion.file_paths : []
-    if (!deletion.deletion_token) {
-      setBusy(false)
-      setError('La préparation de suppression a échoué. Réessayez ou contactez le support technique.')
-      return
-    }
+      const deletion = data as { deletion_token?: string; file_paths?: string[] }
+      const filePaths = Array.isArray(deletion.file_paths) ? deletion.file_paths : []
+      if (!deletion.deletion_token) {
+        setError('La préparation de suppression a échoué. Réessayez ou contactez le support technique.')
+        return
+      }
 
-    if (filePaths.length > 0) {
-      const { error: storageError } = await supabase.storage.from('custom-requests').remove(filePaths)
-      if (storageError) {
-        setBusy(false)
-        setError('Suppression préparée mais fichiers non nettoyés. Réessayez pour terminer sans laisser de fichiers orphelins.')
+      if (filePaths.length > 0) {
+        const { error: storageError } = await supabase.storage.from('custom-requests').remove(filePaths)
+        if (storageError) {
+          setError('Suppression préparée mais fichiers non nettoyés. Réessayez pour terminer sans laisser de fichiers orphelins.')
+          await load()
+          return
+        }
+      }
+
+      const { error: finishError } = await supabase.rpc('finish_custom_request_deletion', {
+        p_request_id: request.id,
+        p_deletion_token: deletion.deletion_token,
+        p_deleted_paths: filePaths,
+      })
+      if (finishError) {
+        setError(orderErrorMessage(finishError.message, 'Les fichiers ont été nettoyés, mais la suppression de la demande reste à terminer. Réessayez.'))
         await load()
         return
       }
-    }
-
-    const { error: finishError } = await supabase.rpc('finish_custom_request_deletion', {
-      p_request_id: request.id,
-      p_deletion_token: deletion.deletion_token,
-      p_deleted_paths: filePaths,
-    })
-    setBusy(false)
-    if (finishError) {
-      setError(orderErrorMessage(finishError.message, 'Les fichiers ont été nettoyés, mais la suppression de la demande reste à terminer. Réessayez.'))
+      setNotice(`La demande ${request.request_number} a été supprimée. L’événement reste dans le journal d’audit.`)
       await load()
-      return
+    } catch {
+      setError('Connexion interrompue. La demande peut être en cours de suppression ; rechargez la liste avant toute nouvelle tentative.')
+      await load()
+    } finally {
+      setBusy(false)
     }
-    setNotice(`La demande ${request.request_number} a été supprimée. L’événement reste dans le journal d’audit.`)
-    await load()
   }
 
   return (

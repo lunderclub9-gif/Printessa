@@ -160,40 +160,50 @@ export default function CheckoutPage() {
     }
 
     setSubmitting(true)
-    const { data, error: rpcError } = await supabase.rpc('create_guest_order', {
-      p_payload: {
-        idempotency_key: idempotencyKey.current,
-        customer_name: name.trim(),
-        phone: normalizedPhone,
-        email: email.trim() || null,
-        wilaya_code: Number(wilayaCode),
-        commune_id: communeId,
-        delivery_method: method,
-        address: method === 'domicile' ? address.trim() : null,
-        pickup_point_id: method === 'stopdesk' ? pickupId : null,
-        note: note.trim() || null,
-        items: items.map((line) => ({
-          product_id: line.productId,
-          variant_id: line.variantId,
-          quantity: line.quantity,
-        })),
-      },
-    })
+    try {
+      const { data, error: rpcError } = await supabase.rpc('create_guest_order', {
+        p_payload: {
+          idempotency_key: idempotencyKey.current,
+          customer_name: name.trim(),
+          phone: normalizedPhone,
+          email: email.trim() || null,
+          wilaya_code: Number(wilayaCode),
+          commune_id: communeId,
+          delivery_method: method,
+          address: method === 'domicile' ? address.trim() : null,
+          pickup_point_id: method === 'stopdesk' ? pickupId : null,
+          note: note.trim() || null,
+          items: items.map((line) => ({
+            product_id: line.productId,
+            variant_id: line.variantId,
+            quantity: line.quantity,
+          })),
+        },
+      })
 
-    if (rpcError) {
-      setSubmitting(false)
-      setError(
-        orderErrorMessage(
-          rpcError.message,
-          "La commande n'a pas pu être enregistrée. Vérifiez vos informations et réessayez."
+      if (rpcError) {
+        setError(
+          orderErrorMessage(
+            rpcError.message,
+            "La commande n'a pas pu être enregistrée. Vérifiez vos informations et réessayez."
+          )
         )
-      )
-      return
-    }
+        return
+      }
 
-    const created = data as CreatedOrder
-    clear()
-    navigate(`/boutique/commande/confirmation?token=${created.tracking_token}`)
+      const created = data as CreatedOrder | null
+      if (!created?.tracking_token) {
+        setError("La réponse du serveur est incomplète. Votre panier a été conservé ; vérifiez le suivi avant de réessayer.")
+        return
+      }
+
+      clear()
+      navigate(`/boutique/commande/confirmation?token=${encodeURIComponent(created.tracking_token)}`)
+    } catch {
+      setError("Connexion interrompue pendant l'enregistrement. Votre panier a été conservé ; vérifiez le suivi avant de réessayer.")
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (

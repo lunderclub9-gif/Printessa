@@ -50,6 +50,26 @@ or changing production data.
   multi-step request/file deletion workflow so interrupted requests remain recoverable.
 - Added an explicit error and retry state to the owner product list instead of presenting a
   failed product query as an empty catalogue.
+- Hardened the delivery administration screen: parallel wilaya data loads are guarded against
+  stale responses, query failures are visible, delay ranges are validated, and deleting a pickup
+  point now requires confirmation.
+- Fixed category management silently discarding save errors. SEO fallback is now used only when
+  the SEO columns are genuinely missing; connection/permission failures no longer masquerade as
+  an unapplied migration.
+- Made public product detail distinguish a network/loading failure from a genuinely missing
+  product, added retry, and prevented a slower previous product request from replacing the
+  currently selected product.
+- Made product editing reject invalid prices, stock, production lead times and weights before
+  saving; failed product/media loads are now surfaced instead of silently presenting incomplete
+  data.
+- Improved gallery safety: if changing the primary image fails, the editor attempts to restore the
+  previous primary image and reports when restoration also fails; deleting the current primary
+  image now reports if a replacement primary image could not be set.
+- Hardened the owner notification center against stale overlapping loads and rejected network
+  requests; failed read-state updates now return a recoverable error instead of leaving an
+  unhandled promise rejection.
+- Added a non-blocking dependency-audit report to CI so the exact affected package names,
+  severity, vulnerable ranges and available fixes can be reviewed before changing the lockfile.
 
 ## Confirmed product behavior gap
 

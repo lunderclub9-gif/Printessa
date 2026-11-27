@@ -10,36 +10,46 @@ export default function CategoryPage() {
   const [category, setCategory] = useState<Category | null>(null)
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [reloadKey, setReloadKey] = useState(0)
 
   useEffect(() => {
     let cancelled = false
     const load = async () => {
       setLoading(true)
-      const { data: categoryData } = await supabase
-        .from('categories')
-        .select('*')
-        .eq('slug', slug ?? '')
-        .eq('is_active', true)
-        .maybeSingle()
-      if (!categoryData) {
+      setLoadError(null)
+      setCategory(null)
+      setProducts([])
+      try {
+        const { data: categoryData, error: categoryError } = await supabase
+          .from('categories')
+          .select('*')
+          .eq('slug', slug ?? '')
+          .eq('is_active', true)
+          .maybeSingle()
+        if (categoryError) throw categoryError
+        if (!categoryData) return
+
+        const current = categoryData as Category
+        const { data: productData, error: productsError } = await supabase
+          .from('products')
+          .select('*, category:categories(*), product_images(*), product_options(id, values:product_option_values(is_active)), product_variants(stock_quantity,made_to_order,is_active)')
+          .eq('category_id', current.id)
+          .eq('status', 'published')
+          .order('created_at', { ascending: false })
+        if (productsError) throw productsError
+        if (cancelled) return
+        setCategory(current)
+        setProducts((productData as Product[]) ?? [])
+      } catch {
+        if (!cancelled) setLoadError('Impossible de charger cette catégorie. Vérifiez votre connexion puis réessayez.')
+      } finally {
         if (!cancelled) setLoading(false)
-        return
       }
-      const current = categoryData as Category
-      const { data: productData } = await supabase
-        .from('products')
-        .select('*, category:categories(*), product_images(*), product_options(id, values:product_option_values(is_active)), product_variants(stock_quantity,made_to_order,is_active)')
-        .eq('category_id', current.id)
-        .eq('status', 'published')
-        .order('created_at', { ascending: false })
-      if (cancelled) return
-      setCategory(current)
-      setProducts((productData as Product[]) ?? [])
-      setLoading(false)
     }
     void load()
     return () => { cancelled = true }
-  }, [slug])
+  }, [slug, reloadKey])
 
   useEffect(() => {
     if (!category) return
@@ -53,6 +63,7 @@ export default function CategoryPage() {
   }, [category])
 
   if (loading) return <div className="flex justify-center py-24"><Loader2 className="h-8 w-8 animate-spin text-brand-red" /></div>
+  if (loadError) return <div className="mx-auto max-w-7xl px-4 py-24 text-center"><p role="alert" className="mb-4 text-sm text-brand-red-light">{loadError}</p><button type="button" onClick={() => setReloadKey((value) => value + 1)} className="btn-primary">Réessayer</button></div>
   if (!category) return <div className="mx-auto max-w-7xl px-4 py-24 text-center"><Package className="mx-auto mb-4 h-12 w-12 text-charcoal-500" /><h1 className="text-xl font-semibold text-offwhite">Catégorie introuvable</h1><Link to="/boutique/produits" className="btn-primary mt-6"><ArrowLeft className="h-4 w-4" />Retour à la boutique</Link></div>
 
   return (

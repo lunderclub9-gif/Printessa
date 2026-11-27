@@ -192,8 +192,8 @@ export default function CheckoutPage() {
       .map((line) => `- ${line.name} : ${line.selectedColor}`)
     const orderNote = [
       note.trim(),
-      colorNotes.length ? `Couleurs sélectionnées :\\n${colorNotes.join('\\n')}` : '',
-    ].filter(Boolean).join('\\n\\n')
+      colorNotes.length ? `Couleurs sélectionnées :\n${colorNotes.join('\n')}` : '',
+    ].filter(Boolean).join('\n\n')
 
     setSubmitting(true)
     try {

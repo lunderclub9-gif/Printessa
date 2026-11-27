@@ -76,6 +76,9 @@ or changing production data.
   order note, which is shown on customer confirmation and in the owner order view. Legacy cart
   entries without a color remain compatible.
 - Added tests for color-specific cart line identity and legacy cart parsing.
+- Aligned the customer cart with the database's 20-line order limit. New distinct cart lines are
+  blocked with clear feedback once the limit is reached; existing oversized carts can be reduced
+  manually and checkout refuses to submit until they fit. The server-side limit remains unchanged.
 - Product cards now calculate availability from active option values and variant-level stock or
   made-to-order flags. Previously a product with zero base stock could be shown as exhausted even
   when one of its selectable variants was available.

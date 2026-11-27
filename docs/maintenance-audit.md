@@ -51,6 +51,17 @@ or changing production data.
 - Added an explicit error and retry state to the owner product list instead of presenting a
   failed product query as an empty catalogue.
 
+## Confirmed product behavior gap
+
+- Product detail currently lets customers choose a value from `available_colors` when the product
+  has no structured option variants, but that selection is not included in the cart line or
+  `create_guest_order` payload. The SQL order-creation function snapshots only the database
+  variant label, so this color choice is lost from the actual order. This is a real end-to-end
+  defect, not a visual issue. Fixing it safely requires validating the selected color against the
+  product's allowed colors and storing it in the order-item snapshot through a new forward
+  migration. Do not change the historical 20 migrations or deploy this schema change until the
+  production migration-history mismatch is reconciled and an isolated database test is available.
+
 ## Dependency review — outstanding
 
 - GitHub Actions `npm ci` reports 14 dependency vulnerabilities (2 low, 11 moderate, 1 high).

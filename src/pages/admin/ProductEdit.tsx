@@ -381,7 +381,15 @@ export default function AdminProductEdit() {
   const deleteOption = async (optionId: string) => {
     if (!id) return
     const option = options.find((item) => item.id === optionId)
-    if (!(await confirmAction({ title: 'Supprimer cette option et ses valeurs ?', description: 'Les variantes concernées perdront ce choix et les images de valeurs non partagées seront nettoyées.', confirmLabel: 'Supprimer l’option', tone: 'danger' }))) return
+    const optionValueIds = new Set((option?.values ?? []).map((value) => value.id))
+    const affectedVariants = variants.filter((variant) =>
+      (variant.values ?? []).some((value) => optionValueIds.has(value.option_value_id))
+    )
+    if (affectedVariants.length > 0) {
+      setError(`Cette option est utilisée par ${affectedVariants.length} variante(s). Supprimez d’abord ces variantes dans la liste des variantes, puis réessayez. Cela évite de conserver des variantes incomplètes ou ambiguës.`)
+      return
+    }
+    if (!(await confirmAction({ title: 'Supprimer cette option et ses valeurs ?', description: 'Cette option et ses valeurs seront supprimées. Aucune variante ne les utilise actuellement.', confirmLabel: 'Supprimer l’option', tone: 'danger' }))) return
     try {
       const { error: deleteError } = await supabase.from('product_options').delete().eq('id', optionId)
       if (deleteError) {
@@ -519,9 +527,16 @@ export default function AdminProductEdit() {
   const deleteOptionValue = async (valueId: string) => {
     if (!id) return
     const value = options.flatMap((option) => option.values ?? []).find((item) => item.id === valueId)
+    const affectedVariants = variants.filter((variant) =>
+      (variant.values ?? []).some((item) => item.option_value_id === valueId)
+    )
+    if (affectedVariants.length > 0) {
+      setError(`Cette valeur est utilisée par ${affectedVariants.length} variante(s). Supprimez d’abord ces variantes dans la liste des variantes, puis réessayez. Cela évite de laisser des variantes sans choix valide.`)
+      return
+    }
     if (!(await confirmAction({
       title: 'Supprimer cette valeur ?',
-      description: `La valeur « ${value?.value ?? 'sélectionnée'} » sera retirée des choix et variantes associées.`,
+      description: `La valeur « ${value?.value ?? 'sélectionnée'} » sera supprimée. Aucune variante ne l’utilise actuellement.`,
       confirmLabel: 'Supprimer la valeur',
       tone: 'danger',
     }))) return

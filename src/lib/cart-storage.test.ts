@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { cartLineKey, parseStoredCart } from './cart-storage'
+import { canAddCartLine, cartLineKey, MAX_ORDER_LINES, parseStoredCart } from './cart-storage'
 
 const validItem = {
   productId: 'product-1',
@@ -65,6 +65,13 @@ describe('parseStoredCart', () => {
       imageUrl: null,
     }
     expect(parseStoredCart(JSON.stringify([legacyItem]))[0].selectedColor).toBeNull()
+  })
+
+  it('caps new distinct cart lines at the server order limit but allows an existing line', () => {
+    const fullCart = Array.from({ length: MAX_ORDER_LINES }, (_, index) => ({ key: `line-${index}` }))
+    expect(canAddCartLine(fullCart, 'new-line')).toBe(false)
+    expect(canAddCartLine(fullCart, 'line-0')).toBe(true)
+    expect(canAddCartLine(fullCart.slice(0, MAX_ORDER_LINES - 1), 'new-line')).toBe(true)
   })
 
   it('returns an empty cart for invalid JSON or a non-array value', () => {

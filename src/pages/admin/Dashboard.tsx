@@ -59,16 +59,23 @@ export default function AdminDashboard() {
     let active = true
     const load = async () => {
       setLoading(true)
-      const { data, error: rpcError } = await supabase.rpc('owner_dashboard_stats')
-      if (!active) return
-      if (rpcError || !data) {
-        setError('Impossible de charger les statistiques. Vérifiez la connexion et vos droits, puis réessayez.')
+      try {
+        const { data, error: rpcError } = await supabase.rpc('owner_dashboard_stats')
+        if (!active) return
+        if (rpcError || !data) {
+          setError('Impossible de charger les statistiques. Vérifiez la connexion et vos droits, puis réessayez.')
+          setStats(null)
+        } else {
+          setError(null)
+          setStats(data as Stats)
+        }
+      } catch {
+        if (!active) return
+        setError('Connexion interrompue. Vérifiez votre connexion puis réessayez.')
         setStats(null)
-      } else {
-        setError(null)
-        setStats(data as Stats)
+      } finally {
+        if (active) setLoading(false)
       }
-      setLoading(false)
     }
     void load()
     return () => {
@@ -76,18 +83,23 @@ export default function AdminDashboard() {
     }
   }, [])
 
-  const retry = () => {
+  const retry = async () => {
     setLoading(true)
     setError(null)
-    void supabase.rpc('owner_dashboard_stats').then(({ data, error: rpcError }) => {
+    try {
+      const { data, error: rpcError } = await supabase.rpc('owner_dashboard_stats')
       if (rpcError || !data) {
         setError('Impossible de charger les statistiques. Vérifiez la connexion et vos droits, puis réessayez.')
         setStats(null)
       } else {
         setStats(data as Stats)
       }
+    } catch {
+      setError('Connexion interrompue. Vérifiez votre connexion puis réessayez.')
+      setStats(null)
+    } finally {
       setLoading(false)
-    })
+    }
   }
 
   return (

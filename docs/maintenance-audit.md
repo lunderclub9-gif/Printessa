@@ -126,23 +126,25 @@ or changing production data.
   preservation decision, the files were not renamed or rewritten; no migration deployment is safe
   until the conflict and remote history are reconciled.
 
-## Confirmed product behavior gap
+## Remaining product data-model improvement
 
-- Product detail currently lets customers choose a value from `available_colors` when the product
-  has no structured option variants, but that selection is not included in the cart line or
-  `create_guest_order` payload. The SQL order-creation function snapshots only the database
-  variant label, so this color choice is lost from the actual order. This is a real end-to-end
-  defect, not a visual issue. Fixing it safely requires validating the selected color against the
-  product's allowed colors and storing it in the order-item snapshot through a new forward
-  migration. Do not change the historical 20 migrations or deploy this schema change until the
-  production migration-history mismatch is reconciled and an isolated database test is available.
+- For products using the legacy `available_colors` field without structured option variants,
+  the selected color is now kept as a distinct cart line and carried into the order note shown to
+  the customer and owner. This fixes the previous customer/owner visibility loss without changing
+  the existing SQL schema.
+- A dedicated validated order-item option snapshot would be more robust than storing this legacy
+  selection in a free-text note. Treat that as a future forward-migration improvement only after
+  production migration history is reconciled and an isolated database test is available.
 
-## Dependency review — outstanding
+## Dependency review — resolved on the current maintenance head
 
-- GitHub Actions `npm ci` reports 14 dependency vulnerabilities (2 low, 11 moderate, 1 high).
-  Identify the exact affected direct/transitive packages and compatible patched versions before
-  changing the lockfile. Do not run `npm audit fix` blindly because it may introduce breaking
-  dependency upgrades.
+- The current lockfile was updated through a separate compatible dependency-maintenance pass.
+  The latest successful GitHub Actions run on `b429c54c08ff7dc1c13b35ebe173d81777d89acd`
+  completed `npm ci` and reported `found 0 vulnerabilities`.
+- The CI security-report step independently reported zero info, low, moderate, high and critical
+  advisories. Keep the report in CI so future lockfile changes are checked continuously.
+- This is a result for the current lockfile and scan date, not a guarantee that future dependency
+  releases will remain vulnerability-free.
 
 ## Database and security review — outstanding
 

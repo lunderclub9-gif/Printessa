@@ -566,6 +566,7 @@ export default function AdminProductEdit() {
     }
 
     setError(null)
+    setCreatingVariants(true)
     try {
       const { data: created, error: createError } = await supabase
         .from('product_variants')
@@ -603,6 +604,8 @@ export default function AdminProductEdit() {
     } catch {
       setError('Connexion interrompue. Rechargez les variantes pour vérifier le résultat avant de réessayer.')
       await loadVariants(id)
+    } finally {
+      setCreatingVariants(false)
     }
   }
 
@@ -719,6 +722,7 @@ export default function AdminProductEdit() {
       return
     }
 
+    setCreatingVariants(true)
     try {
       const { data, error: variantError } = await supabase
         .from('product_variants')
@@ -755,6 +759,8 @@ export default function AdminProductEdit() {
     } catch {
       setError('Connexion interrompue. Rechargez les variantes pour vérifier le résultat avant de réessayer.')
       await loadVariants(id)
+    } finally {
+      setCreatingVariants(false)
     }
   }
 
@@ -1291,7 +1297,7 @@ export default function AdminProductEdit() {
                     <button
                       type="button"
                       onClick={createVariant}
-                      disabled={!combinationComplete}
+                      disabled={creatingVariants || !combinationComplete}
                       className="btn-primary"
                     >
                       <Plus className="h-4 w-4" />
@@ -1301,7 +1307,7 @@ export default function AdminProductEdit() {
                       <button
                         type="button"
                         onClick={() => void createVariantsForSingleOption()}
-                        disabled={!(options[0].values ?? []).some((value) => value.is_active)}
+                        disabled={creatingVariants || !(options[0].values ?? []).some((value) => value.is_active)}
                         className="btn-secondary"
                       >
                         Créer une variante par valeur

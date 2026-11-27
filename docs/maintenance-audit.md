@@ -70,6 +70,12 @@ or changing production data.
   unhandled promise rejection.
 - Added a non-blocking dependency-audit report to CI so the exact affected package names,
   severity, vulnerable ranges and available fixes can be reviewed before changing the lockfile.
+- Fixed a customer-facing cart defect for products using the legacy `available_colors` field:
+  choosing two different colors for the same base product now creates distinct cart lines instead
+  of merging quantities. The selected color survives local-storage reloads and is carried into the
+  order note, which is shown on customer confirmation and in the owner order view. Legacy cart
+  entries without a color remain compatible.
+- Added tests for color-specific cart line identity and legacy cart parsing.
 
 ## Confirmed product behavior gap
 

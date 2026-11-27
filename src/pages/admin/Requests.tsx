@@ -211,35 +211,44 @@ export default function AdminRequests() {
     }
 
     setBusy(true)
-    const { error: rpcError } = await supabase.rpc('create_custom_quote', {
-      p_request_id: requestId,
-      p_price_dzd: Math.round(parsedPrice),
-      p_lead_days: leadDays ? Number(leadDays) : null,
-      p_valid_until: validUntil,
-      p_terms: terms.trim() || null,
-    })
-    setBusy(false)
-
-    if (rpcError) {
-      setError(orderErrorMessage(rpcError.message, "Impossible d'émettre ce devis."))
-      return
+    try {
+      const { error: rpcError } = await supabase.rpc('create_custom_quote', {
+        p_request_id: requestId,
+        p_price_dzd: Math.round(parsedPrice),
+        p_lead_days: leadDays ? Number(leadDays) : null,
+        p_valid_until: validUntil,
+        p_terms: terms.trim() || null,
+      })
+      if (rpcError) {
+        setError(orderErrorMessage(rpcError.message, "Impossible d'émettre ce devis."))
+        return
+      }
+      setQuoteRequestId(null)
+      await load()
+    } catch {
+      setError('Connexion interrompue. Vérifiez si le devis a été créé avant de réessayer.')
+    } finally {
+      setBusy(false)
     }
-    setQuoteRequestId(null)
-    await load()
   }
 
   const setStatus = async (requestId: string, status: string) => {
     setBusy(true)
-    const { error: rpcError } = await supabase.rpc('set_custom_request_status', {
-      p_request_id: requestId,
-      p_status: status,
-    })
-    setBusy(false)
-    if (rpcError) {
-      setError(orderErrorMessage(rpcError.message, 'Impossible de modifier le statut.'))
-      return
+    try {
+      const { error: rpcError } = await supabase.rpc('set_custom_request_status', {
+        p_request_id: requestId,
+        p_status: status,
+      })
+      if (rpcError) {
+        setError(orderErrorMessage(rpcError.message, 'Impossible de modifier le statut.'))
+        return
+      }
+      await load()
+    } catch {
+      setError('Connexion interrompue. Vérifiez le statut de la demande avant de réessayer.')
+    } finally {
+      setBusy(false)
     }
-    await load()
   }
 
   const submitAutoQuote = async (requestId: string) => {
@@ -259,21 +268,26 @@ export default function AdminRequests() {
       return
     }
     setBusy(true)
-    const { error: rpcError } = await supabase.rpc('quote_custom_manufacturing', {
-      p_request_id: requestId,
-      p_material_name: autoMaterial,
-      p_grams: grams,
-      p_print_hours: hours,
-      p_options: autoOptions,
-      p_rush: autoRush,
-    })
-    setBusy(false)
-    if (rpcError) {
-      setError(orderErrorMessage(rpcError.message, "Impossible d'émettre ce devis automatique."))
-      return
+    try {
+      const { error: rpcError } = await supabase.rpc('quote_custom_manufacturing', {
+        p_request_id: requestId,
+        p_material_name: autoMaterial,
+        p_grams: grams,
+        p_print_hours: hours,
+        p_options: autoOptions,
+        p_rush: autoRush,
+      })
+      if (rpcError) {
+        setError(orderErrorMessage(rpcError.message, "Impossible d'émettre ce devis automatique."))
+        return
+      }
+      setAutoRequestId(null)
+      await load()
+    } catch {
+      setError('Connexion interrompue. Vérifiez si le devis automatique a été créé avant de réessayer.')
+    } finally {
+      setBusy(false)
     }
-    setAutoRequestId(null)
-    await load()
   }
 
   const createQuoteFromEstimate = async (request: RequestRow) => {
@@ -283,30 +297,40 @@ export default function AdminRequests() {
       return
     }
     setBusy(true)
-    const { error: rpcError } = await supabase.rpc('create_custom_quote_from_estimate', {
-      p_request_id: request.id,
-    })
-    setBusy(false)
-    if (rpcError) {
-      setError(orderErrorMessage(rpcError.message, "Impossible de créer le devis depuis l'estimation."))
-      return
+    try {
+      const { error: rpcError } = await supabase.rpc('create_custom_quote_from_estimate', {
+        p_request_id: request.id,
+      })
+      if (rpcError) {
+        setError(orderErrorMessage(rpcError.message, "Impossible de créer le devis depuis l'estimation."))
+        return
+      }
+      await load()
+    } catch {
+      setError('Connexion interrompue. Vérifiez si le devis a été créé avant de réessayer.')
+    } finally {
+      setBusy(false)
     }
-    await load()
   }
 
   const approveQuote = async (quote: Quote) => {
     setError(null)
     if (!(await confirmAction({ title: 'Approuver le devis', description: `Approuver le devis v${quote.version} et créer la commande correspondante ?`, confirmLabel: 'Approuver et créer' }))) return
     setBusy(true)
-    const { error: rpcError } = await supabase.rpc('owner_approve_custom_request', {
-      p_quote_id: quote.id,
-    })
-    setBusy(false)
-    if (rpcError) {
-      setError(orderErrorMessage(rpcError.message, "Impossible d'approuver cette demande."))
-      return
+    try {
+      const { error: rpcError } = await supabase.rpc('owner_approve_custom_request', {
+        p_quote_id: quote.id,
+      })
+      if (rpcError) {
+        setError(orderErrorMessage(rpcError.message, "Impossible d'approuver cette demande."))
+        return
+      }
+      await load()
+    } catch {
+      setError('Connexion interrompue. Vérifiez si la commande a été créée avant de réessayer.')
+    } finally {
+      setBusy(false)
     }
-    await load()
   }
 
   const rejectRequest = async (request: RequestRow) => {
@@ -314,16 +338,21 @@ export default function AdminRequests() {
     const reason = prompt('Motif du refus (optionnel) :') ?? ''
     if (!(await confirmAction({ title: 'Refuser cette demande ?', description: `La demande ${request.request_number} sera marquée comme refusée.`, confirmLabel: 'Refuser', tone: 'danger' }))) return
     setBusy(true)
-    const { error: rpcError } = await supabase.rpc('owner_reject_custom_request', {
-      p_request_id: request.id,
-      p_reason: reason.trim() || null,
-    })
-    setBusy(false)
-    if (rpcError) {
-      setError(orderErrorMessage(rpcError.message, 'Impossible de refuser cette demande.'))
-      return
+    try {
+      const { error: rpcError } = await supabase.rpc('owner_reject_custom_request', {
+        p_request_id: request.id,
+        p_reason: reason.trim() || null,
+      })
+      if (rpcError) {
+        setError(orderErrorMessage(rpcError.message, 'Impossible de refuser cette demande.'))
+        return
+      }
+      await load()
+    } catch {
+      setError('Connexion interrompue. Vérifiez le statut de la demande avant de réessayer.')
+    } finally {
+      setBusy(false)
     }
-    await load()
   }
 
   const openFile = async (file: RequestFile) => {

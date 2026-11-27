@@ -22,6 +22,7 @@ export default function AdminProductEdit() {
   const navigate = useNavigate()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const modelInputRef = useRef<HTMLInputElement>(null)
+  const productLoadSequence = useRef(0)
 
   const [categories, setCategories] = useState<Category[]>([])
   const [loading, setLoading] = useState(isNew ? false : true)

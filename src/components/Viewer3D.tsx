@@ -97,7 +97,7 @@ export default function Viewer3D({ src, poster, alt }: Props) {
       viewer.removeEventListener('load', handleLoad)
       viewer.removeEventListener('error', handleError)
     }
-  }, [elementReady])
+  }, [elementReady, src, retryCount])
 
   // 4. Échap quitte le plein écran.
   useEffect(() => {

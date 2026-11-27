@@ -12,7 +12,7 @@ import {
 } from '@/lib/supabase'
 import { slugify, generateSku } from '@/lib/format'
 import { storageObjectPath, validateImage, validateModel } from '@/lib/media'
-import { buildVariantCombinations, variantCombinationKey } from '@/lib/product-variants'
+import { buildVariantCombinations, getVariantIdsUsingOptionValues, variantCombinationKey } from '@/lib/product-variants'
 import posthog, { isPostHogEnabled } from '@/lib/posthog'
 
 export default function AdminProductEdit() {
@@ -388,12 +388,10 @@ export default function AdminProductEdit() {
       setError('Rechargez les variantes avant de supprimer une option afin de protéger les associations existantes.')
       return
     }
-    const optionValueIds = new Set((option?.values ?? []).map((value) => value.id))
-    const affectedVariants = variants.filter((variant) =>
-      (variant.values ?? []).some((value) => optionValueIds.has(value.option_value_id))
-    )
-    if (affectedVariants.length > 0) {
-      setError(`Cette option est utilisée par ${affectedVariants.length} variante(s). Supprimez d’abord ces variantes dans la liste des variantes, puis réessayez. Cela évite de conserver des variantes incomplètes ou ambiguës.`)
+    const optionValueIds = (option?.values ?? []).map((value) => value.id)
+    const affectedVariantIds = getVariantIdsUsingOptionValues(variants, optionValueIds)
+    if (affectedVariantIds.length > 0) {
+      setError(`Cette option est utilisée par ${affectedVariantIds.length} variante(s). Supprimez d’abord ces variantes dans la liste des variantes, puis réessayez. Cela évite de conserver des variantes incomplètes ou ambiguës.`)
       return
     }
     if (!(await confirmAction({ title: 'Supprimer cette option et ses valeurs ?', description: 'Cette option et ses valeurs seront supprimées. Aucune variante ne les utilise actuellement.', confirmLabel: 'Supprimer l’option', tone: 'danger' }))) return
@@ -538,11 +536,9 @@ export default function AdminProductEdit() {
       setError('Rechargez les variantes avant de supprimer une valeur afin de protéger les associations existantes.')
       return
     }
-    const affectedVariants = variants.filter((variant) =>
-      (variant.values ?? []).some((item) => item.option_value_id === valueId)
-    )
-    if (affectedVariants.length > 0) {
-      setError(`Cette valeur est utilisée par ${affectedVariants.length} variante(s). Supprimez d’abord ces variantes dans la liste des variantes, puis réessayez. Cela évite de laisser des variantes sans choix valide.`)
+    const affectedVariantIds = getVariantIdsUsingOptionValues(variants, [valueId])
+    if (affectedVariantIds.length > 0) {
+      setError(`Cette valeur est utilisée par ${affectedVariantIds.length} variante(s). Supprimez d’abord ces variantes dans la liste des variantes, puis réessayez. Cela évite de laisser des variantes sans choix valide.`)
       return
     }
     if (!(await confirmAction({

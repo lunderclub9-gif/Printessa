@@ -113,6 +113,9 @@ or changing production data.
 - Product option and variant management now catches interrupted create/update/delete operations,
   validates integer stock and price inputs, confirms destructive variant/value removal, and disables
   repeated variant-creation actions while a batch is running.
+- Deleting an option or option value is now blocked while any loaded variant references
+  it; if variant loading failed, deletion is blocked until the owner reloads the variants. This
+  prevents cascading deletion of option-value links from leaving orphaned or ambiguous variants.
 - Deleting an option, option value or variant checks for other references before removing its
   uploaded image; replacing an option/variant image also attempts to remove the previous unshared
   file. Failed reference checks preserve the old file and surface a warning rather than risking

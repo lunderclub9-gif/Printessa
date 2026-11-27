@@ -794,6 +794,22 @@ export default function AdminProductEdit() {
         setError('Impossible de supprimer cette variante.')
         return
       }
+      if (variant?.image_url) {
+        const imagePath = storageObjectPath(variant.image_url, 'product-images')
+        if (imagePath?.startsWith(`${id}/`)) {
+          const { data: references, error: referenceError } = await supabase
+            .from('product_variants')
+            .select('id')
+            .eq('image_url', variant.image_url)
+            .limit(1)
+          if (referenceError) {
+            setError('La variante a été supprimée, mais le contrôle des références de sa photo a échoué. Le fichier a été conservé.')
+          } else if (!references?.length) {
+            const { error: storageError } = await supabase.storage.from('product-images').remove([imagePath])
+            if (storageError) setError('La variante a été supprimée, mais sa photo reste dans le stockage et devra être nettoyée.')
+          }
+        }
+      }
       await loadVariants(id)
     } catch {
       setError('Connexion interrompue. Vérifiez si cette variante a été supprimée avant de réessayer.')

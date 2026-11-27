@@ -58,9 +58,17 @@ export default function AdminLayout() {
   }, [])
 
   const handleSignOut = async () => {
-    await supabase.rpc('log_owner_event', { p_action: 'proprietaire.deconnexion' })
-    await signOut()
-    navigate('/admin')
+    // An audit-log failure must never prevent the owner from signing out.
+    try {
+      await supabase.rpc('log_owner_event', { p_action: 'proprietaire.deconnexion' })
+    } catch {
+      // Sign-out remains the priority when the network or audit RPC is unavailable.
+    }
+    try {
+      await signOut()
+    } finally {
+      navigate('/admin')
+    }
   }
 
   return (

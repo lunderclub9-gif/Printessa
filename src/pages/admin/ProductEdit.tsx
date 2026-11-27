@@ -69,44 +69,47 @@ export default function AdminProductEdit() {
   }, [id])
 
   const loadCategories = async () => {
-    const { data, error: queryError } = await supabase.from('categories').select('*').eq('is_active', true).order('name')
-    if (queryError) {
+    try {
+      const { data, error: queryError } = await supabase.from('categories').select('*').eq('is_active', true).order('name')
+      if (queryError) throw queryError
+      setCategories((data as Category[]) ?? [])
+    } catch {
       setError('Impossible de charger les catégories. Vérifiez la connexion puis réessayez.')
-      return
     }
-    setCategories((data as Category[]) ?? [])
   }
 
   const loadOptions = async (productId: string) => {
-    const { data, error: queryError } = await supabase
-      .from('product_options')
-      .select('*, values:product_option_values(*)')
-      .eq('product_id', productId)
-      .order('sort_order')
-    if (queryError) {
-      setError('Impossible de charger les options du produit.')
-      return
+    try {
+      const { data, error: queryError } = await supabase
+        .from('product_options')
+        .select('*, values:product_option_values(*)')
+        .eq('product_id', productId)
+        .order('sort_order')
+      if (queryError) throw queryError
+      const parsed = ((data as ProductOption[]) ?? []).map((option) => ({
+        ...option,
+        values: [...(option.values ?? [])].sort(
+          (a, b) => a.sort_order - b.sort_order || a.value.localeCompare(b.value)
+        ),
+      }))
+      setOptions(parsed)
+    } catch {
+      setError('Impossible de charger les options du produit. Vérifiez la connexion puis réessayez.')
     }
-    const parsed = ((data as ProductOption[]) ?? []).map((option) => ({
-      ...option,
-      values: [...(option.values ?? [])].sort(
-        (a, b) => a.sort_order - b.sort_order || a.value.localeCompare(b.value)
-      ),
-    }))
-    setOptions(parsed)
   }
 
   const loadVariants = async (productId: string) => {
-    const { data, error: queryError } = await supabase
-      .from('product_variants')
-      .select('*, values:product_variant_values(option_value_id)')
-      .eq('product_id', productId)
-      .order('created_at')
-    if (queryError) {
-      setError('Impossible de charger les variantes du produit.')
-      return
+    try {
+      const { data, error: queryError } = await supabase
+        .from('product_variants')
+        .select('*, values:product_variant_values(option_value_id)')
+        .eq('product_id', productId)
+        .order('created_at')
+      if (queryError) throw queryError
+      setVariants((data as ProductVariant[]) ?? [])
+    } catch {
+      setError('Impossible de charger les variantes du produit. Vérifiez la connexion puis réessayez.')
     }
-    setVariants((data as ProductVariant[]) ?? [])
   }
 
   const loadProduct = async (productId: string) => {

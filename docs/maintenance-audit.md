@@ -90,6 +90,8 @@ or changing production data.
 - Customer-specific cart, checkout, order-confirmation and tracking routes now receive
   `noindex,nofollow` metadata so private customer workflows are not intentionally offered to
   search engines.
+- The 3D viewer now resets its loading state when a product model URL changes and exposes a retry
+  action after model/import failures, rather than leaving the customer with a permanent dead end.
 
 ## Confirmed product behavior gap
 

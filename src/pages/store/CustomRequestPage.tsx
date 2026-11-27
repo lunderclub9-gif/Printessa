@@ -152,8 +152,10 @@ export default function CustomRequestPage() {
         if (cancelled) return
         setCommunes(communesResult.error ? [] : (communesResult.data as Commune[]) ?? [])
         setPickupPoints(pickupResult.error ? [] : (pickupResult.data as PickupPoint[]) ?? [])
-        if (communesResult.error || pickupResult.error) {
-          setDestinationError('Impossible de charger les communes ou les points relais de cette wilaya. Réessayez.')
+        if (communesResult.error) {
+          setDestinationError('Impossible de charger les communes de cette wilaya. Réessayez.')
+        } else if (pickupResult.error) {
+          setDestinationError('Impossible de charger les points relais de cette wilaya. Réessayez.')
         }
       } catch {
         if (!cancelled) {
@@ -334,7 +336,9 @@ export default function CustomRequestPage() {
       setError('Le descriptif ne doit pas dépasser 5 000 caractères.')
       return
     }
-    if (initialDataLoading || destinationLoading || initialDataError?.includes('wilayas') || destinationError) {
+    const requiredDestinationUnavailable =
+      destinationError?.includes('communes') || (method === 'stopdesk' && Boolean(destinationError))
+    if (initialDataLoading || destinationLoading || initialDataError?.includes('wilayas') || requiredDestinationUnavailable) {
       setError('Attendez le chargement des informations de livraison ou utilisez Réessayer.')
       return
     }

@@ -20,6 +20,21 @@ records and the actual production schema have been reconciled. A migration-histo
 blind `db push` could make the local and remote histories diverge or replay schema changes.
 The SQL files must be tested in an isolated database before any production rollout.
 
+## Additional migration-file issue — duplicate version identifier
+
+A source-level check found 20 migration files but only 19 unique 14-digit version identifiers.
+These two files share the exact version `20261122120000`:
+
+- `20261122120000_014_product_seo_keywords.sql`
+- `20261122120000_016_flexible_custom_requests.sql`
+
+Supabase migration tracking uses the version identifier, so this collision makes CLI ordering and
+history reconciliation ambiguous and must be resolved before any migration deployment. The
+requested preservation rule is still respected: neither file was renamed, reordered, deleted or
+rewritten. CI now emits a non-blocking warning for duplicate migration versions. Obtain explicit
+approval for the minimal filename/version correction only after comparing the production schema
+and the actual migration contents; do not attempt to push or mark either version as applied now.
+
 ## Security advisor findings
 
 Read-only Supabase security advisors returned:

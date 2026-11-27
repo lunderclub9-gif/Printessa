@@ -22,6 +22,9 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm ci
+      - name: Migration version uniqueness report (non-blocking)
+        run: |
+          node -e "const fs=require('node:fs'); const path=require('node:path'); const dir='supabase/migrations'; const files=fs.readdirSync(dir).filter(f=>f.endsWith('.sql')); const seen=new Map(); for (const file of files) { const version=file.split('_')[0]; if (seen.has(version)) console.log('::warning::Duplicate Supabase migration version ' + version + ': ' + seen.get(version) + ' and ' + file); else seen.set(version,file); }"
       - name: Dependency security report (non-blocking)
         run: |
           npm audit --json > /tmp/npm-audit.json || true

@@ -108,6 +108,18 @@ estimate/request and owner quote flows on an isolated database after the revoke.
 pinned path to `pg_catalog, public`. Do not make this change directly in production during the
 audit.
 
+**Second confirmed exposure — `next_order_number()`:** the live ACL includes PUBLIC, anon and
+authenticated EXECUTE, and both API roles have USAGE/UPDATE on `public.order_number_seq`. The
+function is SECURITY INVOKER (not SECURITY DEFINER), but directly calls `nextval`, so anonymous
+callers can consume order-number sequence values without creating an order. This permits sequence
+burning and gaps, and is not a customer-facing feature. The source shows that
+`create_guest_order()` calls `next_order_number()` internally; `create_guest_order()` is
+SECURITY DEFINER and owned by `postgres`, so a forward fix can revoke direct function execution
+and direct sequence privileges from API roles while preserving checkout's owner-level call path.
+The `custom_request_seq` ACL also grants anon/authenticated sequence privileges even though
+`create_custom_request()` owns the sequence call; remove those unnecessary direct privileges in
+the same tested forward migration. Keep the sequence objects and existing values intact.
+
 The owner-only checks are an important second layer, but they do not replace least-privilege
 EXECUTE grants. Revoke anonymous access from owner-only RPCs, and keep trigger/helper functions
 callable only by the database owner and their internal call paths. Trigger functions such as

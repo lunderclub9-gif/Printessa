@@ -135,10 +135,24 @@ This function is intended to run only through its trigger, not as a client RPC. 
 least-privilege revoke in a new forward migration after testing the trigger path on an isolated
 database. Do not edit the historical migration file or change production grants during this audit.
 
-The live `manufacturing_materials_public` view remains a separate security-advisor concern: its
-underlying table policies and intended public read contract must be tested before converting it to
-a security-invoker view. The production advisor counts describe the live database snapshot and
-must not be assumed to match the repository migration set while migration history is unresolved.
+The live `manufacturing_materials_public` view remains a separate security-advisor concern.
+A read-only inspection confirmed that it selects only `name`, `colors`, `is_available` and
+`sort_order` for available materials, and grants SELECT on the view to `anon` and
+`authenticated`. Its `reloptions` are NULL, so it is not security-invoker. The underlying
+`manufacturing_materials` table has RLS policies for both roles that call `is_owner()`, and
+the two policies currently overlap for SELECT: an ALL policy and a SELECT-only policy use the
+same `is_owner()` predicate. The table's direct anon SELECT grant is revoked.
+
+Do not simply flip the view to security-invoker: that would make the public catalogue stop working
+unless a deliberate column-level SELECT grant and an anon RLS policy for available materials are
+added and tested together. A safe forward design is to expose only the four public columns, allow
+anon to read only rows where `is_available = true`, and run the view as security-invoker; the
+redundant SELECT-only owner policy can be removed in that same tested forward migration because
+the existing ALL policy already provides the identical owner SELECT predicate. Do not apply this
+to production during the audit.
+
+The production advisor counts describe the live database snapshot and must not be assumed to match
+the repository migration set while migration history is unresolved.
 
 ## Required verification before merge or deployment
 

@@ -365,7 +365,8 @@ export default function AdminProductEdit() {
 
   const deleteOption = async (optionId: string) => {
     if (!id) return
-    if (!(await confirmAction({ title: 'Supprimer cette option et ses valeurs ?', description: 'Les variantes concernées perdront ce choix.', confirmLabel: 'Supprimer l’option', tone: 'danger' }))) return
+    const option = options.find((item) => item.id === optionId)
+    if (!(await confirmAction({ title: 'Supprimer cette option et ses valeurs ?', description: 'Les variantes concernées perdront ce choix et les images de valeurs non partagées seront nettoyées.', confirmLabel: 'Supprimer l’option', tone: 'danger' }))) return
     try {
       const { error: deleteError } = await supabase.from('product_options').delete().eq('id', optionId)
       if (deleteError) {
@@ -377,9 +378,27 @@ export default function AdminProductEdit() {
         delete next[optionId]
         return next
       })
+      for (const value of option?.values ?? []) {
+        if (!value.image_url) continue
+        const imagePath = storageObjectPath(value.image_url, 'product-images')
+        if (!imagePath?.startsWith(`${id}/`)) continue
+        const { data: references, error: referenceError } = await supabase
+          .from('product_option_values')
+          .select('id')
+          .eq('image_url', value.image_url)
+          .limit(1)
+        if (referenceError) {
+          setError('Option supprimée, mais le contrôle des références de certaines photos a échoué. Les fichiers ont été conservés.')
+          continue
+        }
+        if (!references?.length) {
+          const { error: storageError } = await supabase.storage.from('product-images').remove([imagePath])
+          if (storageError) setError('Option supprimée, mais certaines photos restent dans le stockage et devront être nettoyées.')
+        }
+      }
       await Promise.all([loadOptions(id), loadVariants(id)])
     } catch {
-      setError('Connexion interrompue. Vérifiez si cette option a été supprimée avant de réessayer.')
+      setError('Connexion interrompue. Rechargez les options pour vérifier le résultat; les fichiers non confirmés ont été conservés.')
     }
   }
 

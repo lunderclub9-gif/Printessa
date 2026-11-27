@@ -97,6 +97,14 @@ or changing production data.
   busy state. If the database deletion succeeds but cleanup cannot be confirmed, files are kept
   and the owner is told that manual cleanup may be needed.
 
+## Migration deployment blockers
+
+- In addition to the production migration-history mismatch, the repository has 20 migration files
+  but only 19 unique version identifiers: migrations 014 and 016 both start with
+  `20261122120000`. This was documented and CI now warns about duplicate identifiers. Per the
+  preservation decision, the files were not renamed or rewritten; no migration deployment is safe
+  until the conflict and remote history are reconciled.
+
 ## Confirmed product behavior gap
 
 - Product detail currently lets customers choose a value from `available_colors` when the product

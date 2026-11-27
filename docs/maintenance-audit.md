@@ -65,7 +65,8 @@ or changing production data.
   currently selected product.
 - Made product editing reject invalid prices, stock, production lead times and weights before
   saving; failed product/media loads are now surfaced instead of silently presenting incomplete
-  data.
+  data. Product editor requests are sequence-guarded so switching between products cannot let an
+  older product's images, options or variants overwrite the current editor.
 - Improved gallery safety: if changing the primary image fails, the editor attempts to restore the
   previous primary image and reports when restoration also fails; deleting the current primary
   image now reports if a replacement primary image could not be set.

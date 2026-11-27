@@ -427,6 +427,7 @@ export default function AdminProductEdit() {
   const uploadOptionValueImage = async (valueId: string, event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (!file || !id) return
+    const previousUrl = options.flatMap((option) => option.values ?? []).find((value) => value.id === valueId)?.image_url
     setUploading(true)
     try {
       const check = await validateImage(file)
@@ -437,6 +438,21 @@ export default function AdminProductEdit() {
       const { data } = supabase.storage.from('product-images').getPublicUrl(path)
       const { error } = await supabase.from('product_option_values').update({ image_url: data.publicUrl }).eq('id', valueId)
       if (error) { await supabase.storage.from('product-images').remove([path]); if (/image_url|column/i.test(error.message)) throw new Error('Appliquez la migration 020 pour activer les photos des formes et couleurs.'); throw error }
+      if (previousUrl && previousUrl !== data.publicUrl) {
+        const previousPath = storageObjectPath(previousUrl, 'product-images')
+        if (previousPath?.startsWith(`${id}/`)) {
+          const { data: references, error: referenceError } = await supabase
+            .from('product_option_values')
+            .select('id')
+            .eq('image_url', previousUrl)
+            .limit(1)
+          if (referenceError) setError('Nouvelle photo enregistrée, mais l’ancienne photo a été conservée car ses références n’ont pas pu être vérifiées.')
+          else if (!references?.length) {
+            const { error: cleanupError } = await supabase.storage.from('product-images').remove([previousPath])
+            if (cleanupError) setError('Nouvelle photo enregistrée, mais l’ancienne photo reste dans le stockage.')
+          }
+        }
+      }
       await loadOptions(id)
     } catch (err) { setError(err instanceof Error ? err.message : "Erreur lors de l'envoi de la photo.") }
     finally { setUploading(false); event.target.value = '' }
@@ -748,6 +764,7 @@ export default function AdminProductEdit() {
   ) => {
     const file = event.target.files?.[0]
     if (!file || !id) return
+    const previousUrl = variant.image_url
     setUploading(true)
     setError(null)
     try {
@@ -774,6 +791,21 @@ export default function AdminProductEdit() {
       setVariants((current) =>
         current.map((item) => item.id === variant.id ? { ...item, image_url: urlData.publicUrl } : item)
       )
+      if (previousUrl && previousUrl !== urlData.publicUrl) {
+        const previousPath = storageObjectPath(previousUrl, 'product-images')
+        if (previousPath?.startsWith(`${id}/`)) {
+          const { data: references, error: referenceError } = await supabase
+            .from('product_variants')
+            .select('id')
+            .eq('image_url', previousUrl)
+            .limit(1)
+          if (referenceError) setError('Nouvelle photo enregistrée, mais l’ancienne photo a été conservée car ses références n’ont pas pu être vérifiées.')
+          else if (!references?.length) {
+            const { error: cleanupError } = await supabase.storage.from('product-images').remove([previousPath])
+            if (cleanupError) setError('Nouvelle photo enregistrée, mais l’ancienne photo reste dans le stockage.')
+          }
+        }
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erreur lors du téléversement de la photo.')
     } finally {

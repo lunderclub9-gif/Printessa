@@ -45,7 +45,9 @@ or changing production data.
   leave permanent loading states or silently replace existing settings with blank values.
 - Made owner sign-out continue even if the audit-event RPC is unavailable.
 - Hardened order status changes, archiving and permanent deletion so network failures release
-  busy states and tell the owner to verify the result before retrying.
+  busy states and tell the owner to verify the result before retrying. The owner order list and
+  notification deep links now also handle rejected network requests without leaving the list
+  permanently loading.
 - Hardened custom-request quote creation, status changes, quote approval/rejection and the
   multi-step request/file deletion workflow so interrupted requests remain recoverable.
 - Added an explicit error and retry state to the owner product list instead of presenting a

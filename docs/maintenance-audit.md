@@ -14,11 +14,11 @@ dead-code or duplicate-flow finding is proven.
   to replay. It now lists all 20 in timestamp order and warns that idempotency is statement-specific.
 - The CI workflow did not run on maintenance branches. It now includes `maintenance/**`.
 - `ProductEdit.tsx` is approximately 65 KB and combines product loading/saving, media uploads,
-  option editing, variant generation and deletion. The first safe extraction is complete:
-  `src/lib/product-variants.ts` now owns order-independent combination keys and bounded Cartesian
-  generation, with focused tests. The generator checks the 100-variant cap before allocating the
-  combinations, avoiding the previous potentially large intermediate array. The remaining editor
-  responsibilities still need gradual extraction.
+  option editing, variant generation and deletion. The first safe extractions are complete: `src/lib/product-variants.ts` owns order-independent
+  combination keys and bounded Cartesian generation; `src/lib/media.ts` now owns shared Storage URL
+  path parsing. Both helpers have focused tests. Variant generation checks the 100-variant cap
+  before allocating combinations, and the editor reuses one storage-path parser for product images
+  and 3D models. The remaining editor responsibilities still need gradual extraction.
 - Manufacturing configuration and product-cost configuration use different database models:
   `manufacturing_materials` (price per gram, density, multiplier and print availability) versus
   `materials` (cost per kilogram for product cost estimates). They look similar in the UI but
@@ -31,8 +31,8 @@ dead-code or duplicate-flow finding is proven.
 
 ## Safe next steps
 
-1. Continue extracting focused modules from the product editor (media, option values, variant
-   persistence) without changing database calls or UI behavior.
+1. Continue extracting focused modules from the product editor (option values, variant persistence
+   and form persistence) without changing database calls or UI behavior.
 2. Keep adding tests around extracted pure functions before moving side effects.
 3. Trace all references to both material tables and document their business purpose.
 4. Compare client pricing tests with SQL behavior using an isolated PostgreSQL/Supabase database.

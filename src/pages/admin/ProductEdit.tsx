@@ -245,19 +245,36 @@ export default function AdminProductEdit() {
     if (!id) return
     setError(null)
     const previousPrimary = images.find((image) => image.is_primary)
-    const { error: clearError } = await supabase.from('product_images').update({ is_primary: false }).eq('product_id', id)
-    if (clearError) {
-      setError(`Impossible de modifier la photo principale : ${clearError.message}`)
-      return
+    try {
+      const { error: clearError } = await supabase
+        .from('product_images')
+        .update({ is_primary: false })
+        .eq('product_id', id)
+      if (clearError) {
+        setError(`Impossible de modifier la photo principale : ${clearError.message}`)
+        return
+      }
+      const { error: primaryError } = await supabase
+        .from('product_images')
+        .update({ is_primary: true })
+        .eq('id', imageId)
+        .eq('product_id', id)
+      if (primaryError) {
+        const rollback = previousPrimary
+          ? await supabase.from('product_images').update({ is_primary: true }).eq('id', previousPrimary.id).eq('product_id', id)
+          : null
+        setError(
+          rollback?.error
+            ? 'La modification de la photo principale a échoué et la restauration automatique aussi. Rechargez le produit pour vérifier la galerie.'
+            : `La photo principale n’a pas été modifiée : ${primaryError.message}`
+        )
+        return
+      }
+      setImages((prev) => prev.map((img) => ({ ...img, is_primary: img.id === imageId })))
+      if (isPostHogEnabled) posthog.capture('product_primary_image_set', { product_id: id, image_id: imageId })
+    } catch {
+      setError('Connexion interrompue pendant le changement de photo principale. Rechargez la galerie avant de réessayer.')
     }
-    const { error: primaryError } = await supabase.from('product_images').update({ is_primary: true }).eq('id', imageId).eq('product_id', id)
-    if (primaryError) {
-      if (previousPrimary) await supabase.from('product_images').update({ is_primary: true }).eq('id', previousPrimary.id).eq('product_id', id)
-      setError(`La photo principale n’a pas été modifiée : ${primaryError.message}`)
-      return
-    }
-    setImages((prev) => prev.map((img) => ({ ...img, is_primary: img.id === imageId })))
-    if (isPostHogEnabled) posthog.capture('product_primary_image_set', { product_id: id, image_id: imageId })
   }
 
   const deleteImage = async (imageId: string, imageUrl: string) => {
@@ -268,8 +285,20 @@ export default function AdminProductEdit() {
     const remaining = images.filter((item) => item.id !== imageId)
     setImages(remaining)
     if (image?.is_primary && remaining[0]) {
-      const { error: primaryError } = await supabase.from('product_images').update({ is_primary: true }).eq('id', remaining[0].id).eq('product_id', id)
-      if (!primaryError) setImages((current) => current.map((item) => ({ ...item, is_primary: item.id === remaining[0].id })))
+      try {
+        const { error: primaryError } = await supabase
+          .from('product_images')
+          .update({ is_primary: true })
+          .eq('id', remaining[0].id)
+          .eq('product_id', id)
+        if (primaryError) {
+          setError('La photo a été supprimée, mais la nouvelle photo principale n’a pas pu être définie. Choisissez-en une manuellement.')
+        } else {
+          setImages((current) => current.map((item) => ({ ...item, is_primary: item.id === remaining[0].id })))
+        }
+      } catch {
+        setError('La photo a été supprimée, mais la nouvelle photo principale n’a pas pu être confirmée. Rechargez la galerie.')
+      }
     }
     const path = storageObjectPath(imageUrl, 'product-images')
     if (path && path.startsWith(`${id}/`)) {

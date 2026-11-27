@@ -41,6 +41,9 @@ or changing production data.
   when inputs change, and ensured network failures release the loading state.
 - Hardened custom-request submission, order tracking, quote decisions and order confirmation
   against thrown network failures while keeping customer-submitted files/cart data available.
+- Restored the promised manual custom-request path: customers can now complete contact and
+  delivery details and submit a request without dimensions or an automatic estimate. When an
+  estimate is available, its acceptance remains required before submission.
 - Hardened the owner dashboard retry flow and settings load/save flow so network failures do not
   leave permanent loading states or silently replace existing settings with blank values.
 - Made owner sign-out continue even if the audit-event RPC is unavailable.

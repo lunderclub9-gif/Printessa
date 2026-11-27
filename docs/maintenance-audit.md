@@ -102,7 +102,8 @@ or changing production data.
   busy state. If the database deletion succeeds but cleanup cannot be confirmed, files are kept
   and the owner is told that manual cleanup may be needed.
 - Product option and variant management now catches interrupted create/update/delete operations,
-  validates integer stock and price inputs, and confirms destructive variant/value removal.
+  validates integer stock and price inputs, confirms destructive variant/value removal, and disables
+  repeated variant-creation actions while a batch is running.
 - Deleting an option, option value or variant checks for other references before removing its
   uploaded image; replacing an option/variant image also attempts to remove the previous unshared
   file. Failed reference checks preserve the old file and surface a warning rather than risking

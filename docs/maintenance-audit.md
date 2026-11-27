@@ -166,6 +166,14 @@ or changing production data.
   callable where the storefront requires them; owner-only RPCs and internal trigger helpers
   should not be exposed unnecessarily. Do not revoke grants until client and trigger paths are
   confirmed.
+- A live read-only grant inspection confirmed two high-priority database exposures:
+  `manufacturing_calculate_full(...)` is callable by anon/authenticated and returns internal
+  material/printing/production cost and margin fields; `next_order_number()` is callable by
+  anon/authenticated and can consume order-number sequence values without creating an order.
+  The guest checkout/request wrappers run as the postgres function owner, so the internal helper
+  grants and sequence privileges can be tightened in a tested forward migration without removing
+  guest checkout. No production grants were changed. See
+  `docs/production-database-audit.md` for the exact ACL evidence and safe remediation plan.
 - Review the `manufacturing_materials_public` view and its security-invoker behavior against the
   intended public material catalogue before changing it.
 - Review missing FK indexes, RLS policy performance advisories and unused indexes against actual

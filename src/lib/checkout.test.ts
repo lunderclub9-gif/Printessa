@@ -13,7 +13,7 @@ describe('buildOrderNote', () => {
       { name: 'Vase', selectedColor: 'Rouge' },
       { name: 'Support', selectedColor: null },
       { name: 'Lampe', selectedColor: 'Noir' },
-    ])).toBe('Appeler avant livraison\\n\\nCouleurs sélectionnées :\\n- Vase : Rouge\\n- Lampe : Noir')
+    ])).toBe('Appeler avant livraison\n\nCouleurs sélectionnées :\n- Vase : Rouge\n- Lampe : Noir')
   })
 
   it('returns null when there are no customer notes or color choices', () => {

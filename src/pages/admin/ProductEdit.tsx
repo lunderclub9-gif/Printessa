@@ -196,7 +196,7 @@ export default function AdminProductEdit() {
       if (upErr) throw new Error('Le stockage a refusé le modèle (format ou taille).')
 
       const { data: urlData } = supabase.storage.from('product-models').getPublicUrl(path)
-      const previousPath = form.model_url.split('/product-models/')[1]
+      const previousPath = storageObjectPath(form.model_url, 'product-models')
       setForm((prev) => ({ ...prev, model_url: urlData.publicUrl }))
       if (isPostHogEnabled) posthog.capture('product_model_uploaded', { product_id: id })
 

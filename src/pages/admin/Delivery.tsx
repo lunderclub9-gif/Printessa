@@ -39,6 +39,7 @@ export default function AdminDelivery() {
   const [rates, setRates] = useState<Rate[]>([])
   const [points, setPoints] = useState<PickupPoint[]>([])
   const [loading, setLoading] = useState(true)
+  const [wilayaReloadKey, setWilayaReloadKey] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [previewLoading, setPreviewLoading] = useState(false)
@@ -78,7 +79,7 @@ export default function AdminDelivery() {
     return () => {
       active = false
     }
-  }, [])
+  }, [wilayaReloadKey])
 
   const loadWilayaData = useCallback(async (code: number) => {
     const requestId = ++requestSequence.current
@@ -315,8 +316,19 @@ export default function AdminDelivery() {
       </p>
 
       {error && (
-        <div role="alert" className="admin-feedback admin-feedback-error mb-4">
-          {error}
+        <div role="alert" className="admin-feedback admin-feedback-error mb-4 flex flex-wrap items-center justify-between gap-3">
+          <span>{error}</span>
+          <button
+            type="button"
+            onClick={() => {
+              setError(null)
+              setWilayaReloadKey((value) => value + 1)
+              if (wilayaCode) void loadWilayaData(Number(wilayaCode))
+            }}
+            className="btn-secondary"
+          >
+            Réessayer
+          </button>
         </div>
       )}
 

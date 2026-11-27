@@ -1,4 +1,4 @@
-import { cartLineKey, parseStoredCart, type CartItem } from './cart-storage'
+import { cartLineKey, MAX_ORDER_LINES, parseStoredCart, type CartItem } from './cart-storage'
 
 export type { CartItem } from './cart-storage'
 
@@ -14,7 +14,6 @@ import {
 
 const STORAGE_KEY = 'lunders_panier_v1'
 const MAX_QUANTITY = 10
-const MAX_ORDER_LINES = 20
 
 type CartContextValue = {
   items: CartItem[]

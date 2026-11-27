@@ -16,7 +16,7 @@ export default function HomePage() {
 
     const featuredQuery = supabase
       .from('products')
-      .select('*, category:categories(*), product_images(*)')
+      .select('*, category:categories(*), product_images(*), product_options(id, values:product_option_values(is_active)), product_variants(stock_quantity,made_to_order,is_active)')
       .eq('status', 'published')
       .eq('is_featured', true)
       .order('created_at', { ascending: false })
@@ -24,7 +24,7 @@ export default function HomePage() {
 
     const recentQuery = supabase
       .from('products')
-      .select('*, category:categories(*), product_images(*)')
+      .select('*, category:categories(*), product_images(*), product_options(id, values:product_option_values(is_active)), product_variants(stock_quantity,made_to_order,is_active)')
       .eq('status', 'published')
       .order('created_at', { ascending: false })
       .limit(8)

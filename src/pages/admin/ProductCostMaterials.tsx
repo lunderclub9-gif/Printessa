@@ -13,14 +13,23 @@ export default function ProductCostMaterialsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [loadFailed, setLoadFailed] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
-    const { data, error: loadError } = await supabase.from('materials')
-      .select('id, name, cost_per_kg_dzd, is_active').order('name')
-    if (loadError) setError('Impossible de charger les matières et leurs coûts.')
-    else { setError(null); setMaterials((data as Material[]) ?? []) }
-    setLoading(false)
+    setLoadFailed(false)
+    try {
+      const { data, error: loadError } = await supabase.from('materials')
+        .select('id, name, cost_per_kg_dzd, is_active').order('name')
+      if (loadError) throw loadError
+      setError(null)
+      setMaterials((data as Material[]) ?? [])
+    } catch {
+      setLoadFailed(true)
+      setError('Impossible de charger les matières et leurs coûts. Aucune liste vide ne sera présentée comme un catalogue complet.')
+    } finally {
+      setLoading(false)
+    }
   }, [])
 
   useEffect(() => { void load() }, [load])
@@ -32,23 +41,37 @@ export default function ProductCostMaterialsPage() {
       setError('Renseignez un nom de matière et un coût au kilo valide.')
       return
     }
+    if (!Number.isSafeInteger(cost)) {
+      setError('Le coût au kilo doit être un nombre entier.')
+      return
+    }
     setBusy(true)
-    const { error: insertError } = await supabase.from('materials').insert({
-      name: materialName.trim(), cost_per_kg_dzd: Math.round(cost),
-    })
-    setBusy(false)
-    if (insertError) { setError('Impossible d’ajouter cette matière (nom déjà utilisé ?).'); return }
-    setMaterialName(''); setMaterialCost('')
-    await load()
+    try {
+      const { error: insertError } = await supabase.from('materials').insert({
+        name: materialName.trim(), cost_per_kg_dzd: cost,
+      })
+      if (insertError) { setError('Impossible d’ajouter cette matière (nom déjà utilisé ?).'); return }
+      setMaterialName(''); setMaterialCost('')
+      await load()
+    } catch {
+      setError("Connexion interrompue. Vérifiez si la matière a été ajoutée avant de réessayer.")
+    } finally {
+      setBusy(false)
+    }
   }
 
   const updateMaterialCost = async (material: Material, cost: string) => {
     const parsed = Number(cost)
     if (!Number.isFinite(parsed) || parsed < 0) { setError('Le coût doit être un nombre positif ou nul.'); return }
-    const { error: updateError } = await supabase.from('materials')
-      .update({ cost_per_kg_dzd: Math.round(parsed) }).eq('id', material.id)
-    if (updateError) setError('Impossible de mettre à jour ce coût.')
-    else await load()
+    if (!Number.isSafeInteger(parsed)) { setError('Le coût doit être un nombre entier de dinars.'); return }
+    try {
+      const { error: updateError } = await supabase.from('materials')
+        .update({ cost_per_kg_dzd: parsed }).eq('id', material.id)
+      if (updateError) setError('Impossible de mettre à jour ce coût.')
+      else await load()
+    } catch {
+      setError('Connexion interrompue. Vérifiez le coût enregistré avant de réessayer.')
+    }
   }
 
   const deleteMaterial = async (material: Material) => {
@@ -58,9 +81,13 @@ export default function ProductCostMaterialsPage() {
       confirmLabel: 'Supprimer la matière', tone: 'danger',
     })
     if (!accepted) return
-    const { error: deleteError } = await supabase.from('materials').delete().eq('id', material.id)
-    if (deleteError) { setError('Impossible de supprimer cette matière.'); return }
-    await load()
+    try {
+      const { error: deleteError } = await supabase.from('materials').delete().eq('id', material.id)
+      if (deleteError) { setError('Impossible de supprimer cette matière.'); return }
+      await load()
+    } catch {
+      setError('Connexion interrompue. Vérifiez si la matière a été supprimée avant de réessayer.')
+    }
   }
 
   return (
@@ -73,6 +100,7 @@ export default function ProductCostMaterialsPage() {
         </div>
       </header>
       {error && <div role="alert" className="admin-feedback admin-feedback-error">{error}</div>}
+      {loadFailed && <button type="button" onClick={() => void load()} className="btn-secondary">Réessayer</button>}
       <section className="admin-card">
         <div className="mb-4 flex items-center gap-2">
           <Coins className="h-5 w-5 text-brand-red-light" />

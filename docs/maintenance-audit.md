@@ -108,7 +108,8 @@ or changing production data.
   `noindex,nofollow` metadata so private customer workflows are not intentionally offered to
   search engines.
 - The 3D viewer now resets its loading state when a product model URL changes and exposes a retry
-  action after model/import failures, rather than leaving the customer with a permanent dead end.
+  action after model/import failures. Retrying now remounts the custom viewer element so the same
+  failed model URL is actually requested again instead of leaving the old failed element mounted.
 - Product deletion now traverses nested Storage folders (including option-value images), checks
   whether each public object URL is still referenced before deleting it, and always releases the
   busy state. If the database deletion succeeds but cleanup cannot be confirmed, files are kept

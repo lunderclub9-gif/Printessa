@@ -90,8 +90,28 @@ The 23 anonymous-executable SECURITY DEFINER functions were:
   `audit_row`, `expire_previous_custom_quotes`, `guard_custom_request_status`, and
   `manufacturing_calculate_full`.
 
+**Confirmed high-priority exposure — `manufacturing_calculate_full(...)`:** a read-only
+inspection of the live function ACL returned
+`{postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}`.
+The function is SECURITY DEFINER, owned by `postgres`, and callable by both public API roles.
+Its return JSON includes internal line items and `unitProductionCostDzd`, exposing material,
+printing, labor, complexity and margin calculations that the customer-facing
+`customer_quote_breakdown` wrapper is designed to sanitize. This is not merely an advisor warning:
+it is an actual direct information-disclosure path.
+
+The live definitions of `estimate_manufacturing_dimensions`, `estimate_manufacturing_quote`,
+`create_custom_request` and `quote_custom_manufacturing` are also SECURITY DEFINER and owned by
+`postgres`. Their nested calls to `manufacturing_calculate_full` execute as the function owner,
+so a forward fix should revoke direct EXECUTE from `PUBLIC`, `anon` and `authenticated` on the
+internal helper while retaining the owner privilege needed by those wrappers. Verify all guest
+estimate/request and owner quote flows on an isolated database after the revoke. Also harden its
+pinned path to `pg_catalog, public`. Do not make this change directly in production during the
+audit.
+
 The owner-only checks are an important second layer, but they do not replace least-privilege
-EXECUTE grants. The trigger helpers should be callable by their triggers, not by API roles.
+EXECUTE grants. Revoke anonymous access from owner-only RPCs, and keep trigger/helper functions
+callable only by the database owner and their internal call paths. Trigger functions such as
+`audit_row()` and `guard_custom_request_status()` should not be exposed as direct API endpoints.
 
 The three functions without a pinned `search_path` are:
 

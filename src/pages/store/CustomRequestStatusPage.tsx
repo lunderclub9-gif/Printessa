@@ -77,15 +77,21 @@ export default function CustomRequestStatusPage() {
       setLoading(false)
       return
     }
-    const { data, error: rpcError } = await supabase.rpc('get_custom_request_by_token', {
-      p_token: token,
-    })
-    if (rpcError || !data) {
-      setError(orderErrorMessage(rpcError?.message, 'Demande introuvable.'))
-    } else {
-      setRequest(data as RequestView)
+    try {
+      const { data, error: rpcError } = await supabase.rpc('get_custom_request_by_token', {
+        p_token: token,
+      })
+      if (rpcError || !data) {
+        setError(orderErrorMessage(rpcError?.message, 'Demande introuvable.'))
+      } else {
+        setError(null)
+        setRequest(data as RequestView)
+      }
+    } catch {
+      setError('Connexion interrompue. Vérifiez votre connexion puis rechargez le suivi.')
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
   }, [token])
 
   useEffect(() => {
@@ -96,21 +102,26 @@ export default function CustomRequestStatusPage() {
     setActionError(null)
     setMessage(null)
     setBusyToken(quote.public_token)
-    const { error: rpcError } = await supabase.rpc('decide_custom_quote', {
-      p_quote_token: quote.public_token,
-      p_decision: decision,
-    })
-    setBusyToken(null)
-    if (rpcError) {
-      setActionError(orderErrorMessage(rpcError.message, 'Cette action est impossible.'))
-      return
+    try {
+      const { error: rpcError } = await supabase.rpc('decide_custom_quote', {
+        p_quote_token: quote.public_token,
+        p_decision: decision,
+      })
+      if (rpcError) {
+        setActionError(orderErrorMessage(rpcError.message, 'Cette action est impossible.'))
+        return
+      }
+      setMessage(
+        decision === 'accept'
+          ? 'Estimation acceptée. Le studio doit maintenant vérifier la demande et approuver la fabrication avant toute création de commande.'
+          : 'Devis refusé.'
+      )
+      await load()
+    } catch {
+      setActionError('Connexion interrompue. Vérifiez le statut du devis avant de réessayer.')
+    } finally {
+      setBusyToken(null)
     }
-    setMessage(
-      decision === 'accept'
-        ? 'Estimation acceptée. Le studio doit maintenant vérifier la demande et approuver la fabrication avant toute création de commande.'
-        : 'Devis refusé.'
-    )
-    await load()
   }
 
   if (loading) {

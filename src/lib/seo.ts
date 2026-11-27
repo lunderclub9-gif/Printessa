@@ -5,6 +5,7 @@ export type PageSeo = {
   canonicalUrl?: string | null
   imageUrl?: string | null
   type?: 'website' | 'product'
+  noIndex?: boolean
 }
 
 function upsertMeta(attribute: 'name' | 'property', key: string, content: string) {
@@ -38,6 +39,7 @@ export function setPageSeo(seo: PageSeo) {
   upsertMeta('name', 'twitter:title', seo.title)
   setOptionalMeta('name', 'twitter:description', seo.description)
   setOptionalMeta('name', 'twitter:image', seo.imageUrl)
+  setOptionalMeta('name', 'robots', seo.noIndex ? 'noindex,nofollow' : null)
 
   let canonical = document.head.querySelector<HTMLLinkElement>('link[rel="canonical"]')
   if (seo.canonicalUrl) {

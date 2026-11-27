@@ -98,7 +98,9 @@ export default function AdminProductEdit() {
       }))
       setOptions(parsed)
     } catch {
-      setError('Impossible de charger les options du produit. Vérifiez la connexion puis réessayez.')
+      if (requestId === productLoadSequence.current) {
+        setError('Impossible de charger les options du produit. Vérifiez la connexion puis réessayez.')
+      }
     }
   }
 
@@ -113,7 +115,9 @@ export default function AdminProductEdit() {
       if (requestId !== productLoadSequence.current) return
       setVariants((data as ProductVariant[]) ?? [])
     } catch {
-      setError('Impossible de charger les variantes du produit. Vérifiez la connexion puis réessayez.')
+      if (requestId === productLoadSequence.current) {
+        setError('Impossible de charger les variantes du produit. Vérifiez la connexion puis réessayez.')
+      }
     }
   }
 

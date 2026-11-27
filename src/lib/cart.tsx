@@ -1,4 +1,4 @@
-import { cartLineKey, MAX_ORDER_LINES, parseStoredCart, type CartItem } from './cart-storage'
+import { canAddCartLine, cartLineKey, MAX_ORDER_LINES, parseStoredCart, type CartItem } from './cart-storage'
 
 export type { CartItem } from './cart-storage'
 
@@ -57,8 +57,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
   const add = useCallback((item: Omit<CartItem, 'key' | 'quantity'>, quantity = 1) => {
     const key = cartLineKey(item.productId, item.variantId, item.selectedColor ?? null)
-    const alreadyInCart = items.some((line) => line.key === key)
-    if (!alreadyInCart && items.length >= MAX_ORDER_LINES) return false
+    if (!canAddCartLine(items, key)) return false
 
     setItems((current) => {
       const existing = current.find((line) => line.key === key)

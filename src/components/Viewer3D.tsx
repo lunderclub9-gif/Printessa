@@ -120,7 +120,7 @@ export default function Viewer3D({ src, poster, alt }: Props) {
 
   if (modelStatus === 'error') {
     return (
-      <div className="flex aspect-square items-center justify-center rounded-xl border border-charcoal-400/15 bg-charcoal-800">
+      <div className="relative flex aspect-square items-center justify-center rounded-xl border border-charcoal-400/15 bg-charcoal-800">
         {poster ? (
           <img
             src={poster}
@@ -164,6 +164,7 @@ export default function Viewer3D({ src, poster, alt }: Props) {
 
       {inView && (
         <ModelViewer
+          key={`${src}:${retryCount}`}
           ref={(node: HTMLElement | null) => {
             viewerRef.current = node as ModelViewerElement | null
           }}

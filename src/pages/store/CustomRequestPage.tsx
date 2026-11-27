@@ -46,6 +46,12 @@ export default function CustomRequestPage() {
   const [rush, setRush] = useState(false)
 
   const [materials, setMaterials] = useState<Material[]>([])
+  const [initialDataLoading, setInitialDataLoading] = useState(true)
+  const [initialDataError, setInitialDataError] = useState<string | null>(null)
+  const [initialDataRetry, setInitialDataRetry] = useState(0)
+  const [destinationLoading, setDestinationLoading] = useState(false)
+  const [destinationError, setDestinationError] = useState<string | null>(null)
+  const [destinationRetry, setDestinationRetry] = useState(0)
   const [estimate, setEstimate] = useState<Estimate | null>(null)
   const [estimateError, setEstimateError] = useState<string | null>(null)
   const [estimateLoading, setEstimateLoading] = useState(false)
@@ -83,63 +89,87 @@ export default function CustomRequestPage() {
 
   useEffect(() => {
     let active = true
-    supabase
-      .from('manufacturing_materials_public')
-      .select('name, colors')
-      .order('name')
-      .then(({ data }) => {
+    const loadInitialData = async () => {
+      setInitialDataLoading(true)
+      setInitialDataError(null)
+      try {
+        const [materialsResult, wilayasResult] = await Promise.all([
+          supabase.from('manufacturing_materials_public').select('name, colors').order('name'),
+          supabase.from('wilayas').select('code, name_fr').eq('is_active', true).order('code'),
+        ])
         if (!active) return
-        const mats = (data ?? []).map((m: Record<string, unknown>) => ({
-          name: String(m.name),
-          colors: (m.colors as string[]) ?? [],
-        }))
-        setMaterials(mats)
-        if (mats.length > 0) setMaterial((current) => current || mats[0].name)
-      })
-    supabase
-      .from('wilayas')
-      .select('code, name_fr')
-      .eq('is_active', true)
-      .order('code')
-      .then(({ data }) => {
-        if (active) setWilayas((data as Wilaya[]) ?? [])
-      })
+        if (materialsResult.error) {
+          setMaterials([])
+          setInitialDataError('Le catalogue des matières est indisponible. Vous pouvez toujours envoyer une demande manuelle sans estimation.')
+        } else {
+          const mats = (materialsResult.data ?? []).map((m: Record<string, unknown>) => ({
+            name: String(m.name),
+            colors: (m.colors as string[]) ?? [],
+          }))
+          setMaterials(mats)
+          if (mats.length > 0) setMaterial((current) => current || mats[0].name)
+        }
+        if (wilayasResult.error) {
+          setWilayas([])
+          setInitialDataError('Impossible de charger les wilayas. Réessayez avant de remplir la livraison.')
+        } else {
+          setWilayas((wilayasResult.data as Wilaya[]) ?? [])
+        }
+      } catch {
+        if (active) {
+          setInitialDataError('Connexion interrompue pendant le chargement des informations. Réessayez.')
+          setMaterials([])
+          setWilayas([])
+        }
+      } finally {
+        if (active) setInitialDataLoading(false)
+      }
+    }
+    void loadInitialData()
     return () => {
       active = false
     }
-  }, [])
+  }, [initialDataRetry])
 
   useEffect(() => {
     setCommuneId('')
     setPickupPoints([])
     setPickupId('')
-    if (!wilayaCode) return
+    setDestinationError(null)
+    if (!wilayaCode) {
+      setCommunes([])
+      setDestinationLoading(false)
+      return
+    }
     let cancelled = false
-    supabase
-      .from('communes')
-      .select('id, name_fr')
-      .eq('wilaya_code', Number(wilayaCode))
-      .eq('is_active', true)
-      .order('name_fr')
-      .then(({ data, error: queryError }) => {
-        if (!cancelled) setCommunes(queryError ? [] : (data as Commune[]) ?? [])
-      }, () => {
-        if (!cancelled) setCommunes([])
-      })
-    supabase
-      .from('pickup_points')
-      .select('id, name, address')
-      .eq('wilaya_code', Number(wilayaCode))
-      .eq('is_active', true)
-      .then(({ data, error: queryError }) => {
-        if (!cancelled) setPickupPoints(queryError ? [] : (data as PickupPoint[]) ?? [])
-      }, () => {
-        if (!cancelled) setPickupPoints([])
-      })
+    const loadDestinationData = async () => {
+      setDestinationLoading(true)
+      try {
+        const [communesResult, pickupResult] = await Promise.all([
+          supabase.from('communes').select('id, name_fr').eq('wilaya_code', Number(wilayaCode)).eq('is_active', true).order('name_fr'),
+          supabase.from('pickup_points').select('id, name, address').eq('wilaya_code', Number(wilayaCode)).eq('is_active', true),
+        ])
+        if (cancelled) return
+        setCommunes(communesResult.error ? [] : (communesResult.data as Commune[]) ?? [])
+        setPickupPoints(pickupResult.error ? [] : (pickupResult.data as PickupPoint[]) ?? [])
+        if (communesResult.error || pickupResult.error) {
+          setDestinationError('Impossible de charger les communes ou les points relais de cette wilaya. Réessayez.')
+        }
+      } catch {
+        if (!cancelled) {
+          setCommunes([])
+          setPickupPoints([])
+          setDestinationError('Connexion interrompue pendant le chargement de la destination. Réessayez.')
+        }
+      } finally {
+        if (!cancelled) setDestinationLoading(false)
+      }
+    }
+    void loadDestinationData()
     return () => {
       cancelled = true
     }
-  }, [wilayaCode])
+  }, [wilayaCode, destinationRetry])
 
   const runEstimate = useCallback(async () => {
     const requestId = ++estimateRequestSequence.current
@@ -304,6 +334,10 @@ export default function CustomRequestPage() {
       setError('Le descriptif ne doit pas dépasser 5 000 caractères.')
       return
     }
+    if (initialDataLoading || destinationLoading || initialDataError?.includes('wilayas') || destinationError) {
+      setError('Attendez le chargement des informations de livraison ou utilisez Réessayer.')
+      return
+    }
     if (!wilayaCode || !communeId) {
       setError('Sélectionnez votre wilaya et votre commune.')
       return
@@ -427,6 +461,22 @@ export default function CustomRequestPage() {
         dimensions exactes : le studio l’étudiera et préparera un devis adapté avant fabrication.
       </p>
 
+      {initialDataError && (
+        <div role="alert" className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-brand-red/30 bg-brand-red/10 px-4 py-3 text-sm text-brand-red-light">
+          <span>{initialDataError}</span>
+          <button type="button" onClick={() => setInitialDataRetry((value) => value + 1)} className="btn-secondary">
+            Réessayer
+          </button>
+        </div>
+      )}
+      {destinationError && (
+        <div role="alert" className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-brand-red/30 bg-brand-red/10 px-4 py-3 text-sm text-brand-red-light">
+          <span>{destinationError}</span>
+          <button type="button" onClick={() => setDestinationRetry((value) => value + 1)} className="btn-secondary">
+            Réessayer
+          </button>
+        </div>
+      )}
       {error && (
         <div className="mt-4 flex items-start gap-2 rounded-lg border border-brand-red/30 bg-brand-red/10 px-4 py-3 text-sm text-brand-red-light">
           <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
@@ -778,9 +828,9 @@ export default function CustomRequestPage() {
                     value={communeId}
                     onChange={(event) => setCommuneId(event.target.value)}
                     className="input-field"
-                    disabled={!wilayaCode}
+                    disabled={!wilayaCode || destinationLoading}
                   >
-                    <option value="">Sélectionner...</option>
+                    <option value="">{destinationLoading ? 'Chargement des communes…' : 'Sélectionner...'}</option>
                     {communes.map((c) => (
                       <option key={c.id} value={c.id}>
                         {c.name_fr}
@@ -830,12 +880,14 @@ export default function CustomRequestPage() {
                     value={pickupId}
                     onChange={(event) => setPickupId(event.target.value)}
                     className="input-field"
-                    disabled={pickupPoints.length === 0}
+                    disabled={destinationLoading || pickupPoints.length === 0}
                   >
                     <option value="">
-                      {pickupPoints.length === 0
-                        ? 'Aucun point relais dans cette wilaya'
-                        : 'Sélectionner...'}
+                      {destinationLoading
+                        ? 'Chargement des points relais…'
+                        : pickupPoints.length === 0
+                          ? 'Aucun point relais dans cette wilaya'
+                          : 'Sélectionner...'}
                     </option>
                     {pickupPoints.map((point) => (
                       <option key={point.id} value={point.id}>

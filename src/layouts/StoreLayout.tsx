@@ -1,10 +1,11 @@
-import { Link, Outlet, NavLink, useNavigate } from 'react-router-dom'
+import { Link, Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { Printer, Menu, X, ShoppingCart, Search, Phone, MessageCircle, Mail, Instagram, Facebook, Music2 } from 'lucide-react'
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useLayoutEffect, useState, type FormEvent } from 'react'
 import { useCart } from '@/lib/cart'
 import { supabase } from '@/lib/supabase'
 import { safeExternalUrl } from '@/lib/url'
 import { toMailtoHref, toTelHref, toWhatsAppHref } from '@/lib/contact'
+import { setPageSeo } from '@/lib/seo'
 
 const navLinkClass = ({ isActive }: { isActive: boolean }) =>
   `text-sm font-medium transition-colors ${isActive ? 'text-brand-red' : 'text-charcoal-200 hover:text-offwhite'}`
@@ -21,6 +22,7 @@ export default function StoreLayout() {
   const [searchTerm, setSearchTerm] = useState('')
   const { count } = useCart()
   const navigate = useNavigate()
+  const location = useLocation()
   const [settings, setSettings] = useState<Record<string, string>>({})
 
   useEffect(() => {
@@ -48,6 +50,37 @@ export default function StoreLayout() {
       active = false
     }
   }, [])
+
+  useLayoutEffect(() => {
+    const path = location.pathname
+    const page = path === '/boutique'
+      ? { title: "LUNDER'S 3D STUDIO — Impression 3D en Algérie", description: "Design · Print · Create. Impression 3D et fabrication sur mesure en Algérie." }
+      : path === '/boutique/produits'
+        ? { title: "Boutique | LUNDER'S 3D STUDIO", description: "Découvrez notre catalogue de produits imprimés en 3D et de créations sur mesure en Algérie." }
+        : path === '/boutique/panier'
+          ? { title: "Mon panier | LUNDER'S 3D STUDIO", description: "Consultez les articles sélectionnés avant de passer votre commande." }
+          : path === '/boutique/commande'
+            ? { title: "Commander | LUNDER'S 3D STUDIO", description: "Finalisez votre commande avec paiement à la livraison en Algérie." }
+            : path === '/boutique/sur-mesure'
+              ? { title: "Fabrication sur mesure | LUNDER'S 3D STUDIO", description: "Décrivez votre projet et demandez une fabrication 3D sur mesure en Algérie." }
+              : path === '/boutique/informations'
+                ? { title: "Informations et politiques | LUNDER'S 3D STUDIO", description: "Retrouvez les informations, conditions et politiques de la boutique." }
+                : path.startsWith('/boutique/produits/')
+                  ? { title: "Produit | LUNDER'S 3D STUDIO", description: "Découvrez ce produit imprimé en 3D." }
+                  : path.startsWith('/boutique/categories/')
+                    ? { title: "Catégorie | LUNDER'S 3D STUDIO", description: "Découvrez les produits de cette catégorie." }
+                    : path.includes('/confirmation')
+                      ? { title: "Confirmation de commande | LUNDER'S 3D STUDIO", description: "Consultez le récapitulatif de votre commande." }
+                      : path.includes('/suivi')
+                        ? { title: "Suivi | LUNDER'S 3D STUDIO", description: "Consultez le suivi de votre commande ou de votre demande." }
+                        : { title: "LUNDER'S 3D STUDIO", description: "Impression 3D et fabrication sur mesure en Algérie." }
+
+    setPageSeo({
+      title: page.title,
+      description: page.description,
+      canonicalUrl: `${window.location.origin}${path}`,
+    })
+  }, [location.pathname])
 
   const telHref = toTelHref(settings.phone)
   const whatsappHref = toWhatsAppHref(settings.whatsapp || settings.phone)

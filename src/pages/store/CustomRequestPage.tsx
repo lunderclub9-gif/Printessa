@@ -288,12 +288,16 @@ export default function CustomRequestPage() {
   const removeFile = async (path: string) => {
     if (uploadLock.current) return
     setError(null)
-    const { error: removeError } = await supabase.storage.from('custom-requests').remove([path])
-    if (removeError) {
-      setError('Impossible de supprimer ce fichier du stockage privé. Réessayez avant d’envoyer la demande.')
-      return
+    try {
+      const { error: removeError } = await supabase.storage.from('custom-requests').remove([path])
+      if (removeError) {
+        setError('Impossible de supprimer ce fichier du stockage privé. Réessayez avant d’envoyer la demande.')
+        return
+      }
+      setFiles((current) => current.filter((file) => file.path !== path))
+    } catch {
+      setError('Connexion interrompue pendant la suppression du fichier. Il reste attaché à la demande ; vérifiez puis réessayez.')
     }
-    setFiles((current) => current.filter((file) => file.path !== path))
   }
 
   const handleSubmit = async (event: React.FormEvent) => {

@@ -441,20 +441,11 @@ export default function AdminProductEdit() {
       })
       for (const value of option?.values ?? []) {
         if (!value.image_url) continue
-        const imagePath = storageObjectPath(value.image_url, 'product-images')
-        if (!imagePath?.startsWith(`${id}/`)) continue
-        const { data: references, error: referenceError } = await supabase
-          .from('product_option_values')
-          .select('id')
-          .eq('image_url', value.image_url)
-          .limit(1)
-        if (referenceError) {
-          setError('Option supprimée, mais le contrôle des références de certaines photos a échoué. Les fichiers ont été conservés.')
-          continue
-        }
-        if (!references?.length) {
-          const { error: storageError } = await supabase.storage.from('product-images').remove([imagePath])
-          if (storageError) setError('Option supprimée, mais certaines photos restent dans le stockage et devront être nettoyées.')
+        const cleanupStatus = await cleanupUnreferencedProductImage(id, value.image_url)
+        if (cleanupStatus === 'reference-check-failed') {
+          setError('Option supprimée, mais les références de certaines photos n’ont pas pu être vérifiées. Les fichiers ont été conservés.')
+        } else if (cleanupStatus === 'storage-delete-failed') {
+          setError('Option supprimée, mais certaines photos restent dans le stockage et devront être nettoyées.')
         }
       }
       await Promise.all([loadOptions(id), loadVariants(id)])
@@ -500,18 +491,11 @@ export default function AdminProductEdit() {
       const { error } = await supabase.from('product_option_values').update({ image_url: data.publicUrl }).eq('id', valueId)
       if (error) { await supabase.storage.from('product-images').remove([path]); if (/image_url|column/i.test(error.message)) throw new Error('Appliquez la migration 020 pour activer les photos des formes et couleurs.'); throw error }
       if (previousUrl && previousUrl !== data.publicUrl) {
-        const previousPath = storageObjectPath(previousUrl, 'product-images')
-        if (previousPath?.startsWith(`${id}/`)) {
-          const { data: references, error: referenceError } = await supabase
-            .from('product_option_values')
-            .select('id')
-            .eq('image_url', previousUrl)
-            .limit(1)
-          if (referenceError) setError('Nouvelle photo enregistrée, mais l’ancienne photo a été conservée car ses références n’ont pas pu être vérifiées.')
-          else if (!references?.length) {
-            const { error: cleanupError } = await supabase.storage.from('product-images').remove([previousPath])
-            if (cleanupError) setError('Nouvelle photo enregistrée, mais l’ancienne photo reste dans le stockage.')
-          }
+        const cleanupStatus = await cleanupUnreferencedProductImage(id, previousUrl)
+        if (cleanupStatus === 'reference-check-failed') {
+          setError('Nouvelle photo enregistrée, mais les références de l’ancienne photo n’ont pas pu être vérifiées. Le fichier a été conservé.')
+        } else if (cleanupStatus === 'storage-delete-failed') {
+          setError('Nouvelle photo enregistrée, mais l’ancienne photo reste dans le stockage.')
         }
       }
       await loadOptions(id)
@@ -587,19 +571,11 @@ export default function AdminProductEdit() {
         return
       }
       if (value?.image_url) {
-        const imagePath = storageObjectPath(value.image_url, 'product-images')
-        if (imagePath?.startsWith(`${id}/`)) {
-          const { data: references, error: referenceError } = await supabase
-            .from('product_option_values')
-            .select('id')
-            .eq('image_url', value.image_url)
-            .limit(1)
-          if (referenceError) {
-            setError('La valeur a été supprimée, mais le contrôle des références de sa photo a échoué. Le fichier a été conservé.')
-          } else if (!references?.length) {
-            const { error: storageError } = await supabase.storage.from('product-images').remove([imagePath])
-            if (storageError) setError('La valeur a été supprimée, mais sa photo reste dans le stockage et devra être nettoyée.')
-          }
+        const cleanupStatus = await cleanupUnreferencedProductImage(id, value.image_url)
+        if (cleanupStatus === 'reference-check-failed') {
+          setError('La valeur a été supprimée, mais les références de sa photo n’ont pas pu être vérifiées. Le fichier a été conservé.')
+        } else if (cleanupStatus === 'storage-delete-failed') {
+          setError('La valeur a été supprimée, mais sa photo reste dans le stockage et devra être nettoyée.')
         }
       }
       await Promise.all([loadOptions(id), loadVariants(id)])
@@ -868,18 +844,11 @@ export default function AdminProductEdit() {
         current.map((item) => item.id === variant.id ? { ...item, image_url: urlData.publicUrl } : item)
       )
       if (previousUrl && previousUrl !== urlData.publicUrl) {
-        const previousPath = storageObjectPath(previousUrl, 'product-images')
-        if (previousPath?.startsWith(`${id}/`)) {
-          const { data: references, error: referenceError } = await supabase
-            .from('product_variants')
-            .select('id')
-            .eq('image_url', previousUrl)
-            .limit(1)
-          if (referenceError) setError('Nouvelle photo enregistrée, mais l’ancienne photo a été conservée car ses références n’ont pas pu être vérifiées.')
-          else if (!references?.length) {
-            const { error: cleanupError } = await supabase.storage.from('product-images').remove([previousPath])
-            if (cleanupError) setError('Nouvelle photo enregistrée, mais l’ancienne photo reste dans le stockage.')
-          }
+        const cleanupStatus = await cleanupUnreferencedProductImage(id, previousUrl)
+        if (cleanupStatus === 'reference-check-failed') {
+          setError('Nouvelle photo enregistrée, mais les références de l’ancienne photo n’ont pas pu être vérifiées. Le fichier a été conservé.')
+        } else if (cleanupStatus === 'storage-delete-failed') {
+          setError('Nouvelle photo enregistrée, mais l’ancienne photo reste dans le stockage.')
         }
       }
     } catch (err) {
@@ -922,19 +891,11 @@ export default function AdminProductEdit() {
         return
       }
       if (variant?.image_url) {
-        const imagePath = storageObjectPath(variant.image_url, 'product-images')
-        if (imagePath?.startsWith(`${id}/`)) {
-          const { data: references, error: referenceError } = await supabase
-            .from('product_variants')
-            .select('id')
-            .eq('image_url', variant.image_url)
-            .limit(1)
-          if (referenceError) {
-            setError('La variante a été supprimée, mais le contrôle des références de sa photo a échoué. Le fichier a été conservé.')
-          } else if (!references?.length) {
-            const { error: storageError } = await supabase.storage.from('product-images').remove([imagePath])
-            if (storageError) setError('La variante a été supprimée, mais sa photo reste dans le stockage et devra être nettoyée.')
-          }
+        const cleanupStatus = await cleanupUnreferencedProductImage(id, variant.image_url)
+        if (cleanupStatus === 'reference-check-failed') {
+          setError('La variante a été supprimée, mais les références de sa photo n’ont pas pu être vérifiées. Le fichier a été conservé.')
+        } else if (cleanupStatus === 'storage-delete-failed') {
+          setError('La variante a été supprimée, mais sa photo reste dans le stockage et devra être nettoyée.')
         }
       }
       await loadVariants(id)

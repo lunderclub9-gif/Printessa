@@ -38,20 +38,31 @@ export default function AdminLayout() {
 
   useEffect(() => {
     let active = true
+    let latestRequest = 0
     const refresh = async () => {
-      const { count } = await supabase
-        .from('custom_requests')
-        .select('*', { count: 'exact', head: true })
-        .in('status', ['new', 'reviewing'])
-        .not('estimate_accepted_at', 'is', null)
-      if (active) setNewRequests(count ?? 0)
+      const requestId = ++latestRequest
+      try {
+        const { count, error } = await supabase
+          .from('custom_requests')
+          .select('*', { count: 'exact', head: true })
+          .in('status', ['new', 'reviewing'])
+          .not('estimate_accepted_at', 'is', null)
+        // Keep the last known badge when the network or RLS query fails.
+        if (active && requestId === latestRequest && !error) {
+          setNewRequests(count ?? 0)
+        }
+      } catch {
+        // A failed background refresh must not create an unhandled rejection
+        // or make the notification badge falsely drop to zero.
+      }
     }
-    refresh()
-    const timer = setInterval(refresh, 60000)
-    const onFocus = () => refresh()
+    void refresh()
+    const timer = setInterval(() => void refresh(), 60000)
+    const onFocus = () => void refresh()
     window.addEventListener('focus', onFocus)
     return () => {
       active = false
+      latestRequest += 1
       clearInterval(timer)
       window.removeEventListener('focus', onFocus)
     }

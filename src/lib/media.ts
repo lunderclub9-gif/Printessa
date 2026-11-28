@@ -212,9 +212,9 @@ export async function validateCustomFile(file: File): Promise<MediaCheck> {
   }
 
   if (extension === 'obj') {
-    const text = (await file.slice(0, 65536).text()).split('\\n')
-    const looksLikeObj = text.some((line) => /^\\s*f\\s+[-\\d]/.test(line)) &&
-      text.some((line) => /^\\s*v\\s+[-\\d.]/.test(line))
+    const text = (await file.slice(0, 65536).text()).split('\n')
+    const looksLikeObj = text.some((line) => /^\s*f\s+[-\d]/.test(line)) &&
+      text.some((line) => /^\s*v\s+[-\d.]/.test(line))
     if (!looksLikeObj) {
       return { ok: false, message: `« ${file.name} » n'est pas un fichier OBJ valide.` }
     }

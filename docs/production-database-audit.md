@@ -157,6 +157,24 @@ and `application/octet-stream` is currently allowed. The React magic-byte valida
 10-file submission check can both be bypassed by direct Storage API calls. Do not rely on either
 as the server-side security boundary. Do not delete the existing 10 objects during this audit.
 
+## RLS per-row auth evaluation findings
+
+The 13 live `auth_rls_initplan` findings are concentrated in these policies:
+
+- `categories`: `owner_insert_categories`, `owner_update_categories`, `owner_delete_categories`
+- `products`: `owner_insert_products`, `owner_update_products`, `owner_delete_products`
+- `product_images`: `owner_insert_product_images`, `owner_update_product_images`,
+  `owner_delete_product_images`
+- `profiles`: `select_own_or_owner_profile`, `update_own_profile`
+- `owner_notifications`: `owner_read_notifications`, `owner_mark_notifications_read`
+
+The policies currently evaluate `auth.uid()` inside row predicates (and the profile/notification
+policies also call `is_owner()`). A forward migration can preserve the same authorization
+predicates while wrapping stable calls as scalar subqueries, e.g. `(select auth.uid())` and
+`(select public.is_owner())`, so PostgreSQL can evaluate them once per statement rather than once
+per candidate row. This is a performance-only rewrite; verify owner/customer RLS behavior before
+and after on an isolated database. No live policies were modified.
+
 ## Confirmed redundant owner SELECT policies
 
 A read-only comparison of `pg_policies` found 11 SELECT-only owner policies whose role set and

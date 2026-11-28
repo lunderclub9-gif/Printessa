@@ -105,7 +105,7 @@ The live definitions of `estimate_manufacturing_dimensions`, `estimate_manufactu
 so a forward fix should revoke direct EXECUTE from `PUBLIC`, `anon` and `authenticated` on the
 internal helper while retaining the owner privilege needed by those wrappers. Verify all guest
 estimate/request and owner quote flows on an isolated database after the revoke. Also harden its
-pinned path to `pg_catalog, public`. Do not make this change directly in production during the
+pinned path to `pg_catalog, public, pg_temp`. Do not make this change directly in production during the
 audit.
 
 **Second confirmed exposure — `next_order_number()`:** the live ACL includes PUBLIC, anon and
@@ -309,7 +309,7 @@ production SQL editor.
 REVOKE EXECUTE ON FUNCTION public.manufacturing_calculate_full(text, numeric, numeric, integer, jsonb, boolean)
   FROM PUBLIC, anon, authenticated;
 ALTER FUNCTION public.manufacturing_calculate_full(text, numeric, numeric, integer, jsonb, boolean)
-  SET search_path = pg_catalog, public;
+  SET search_path = pg_catalog, public, pg_temp;
 
 -- Owner-only RPCs remain available to authenticated owners; anon has no reason to execute them.
 REVOKE EXECUTE ON FUNCTION public.create_custom_quote(uuid, integer, integer, date, text) FROM PUBLIC, anon;

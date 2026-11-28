@@ -4,6 +4,15 @@ This report records read-only checks against the Supabase production database an
 `maintenance/consolidated-migrations`. No database schema, migration history, production data,
 or production grants were changed during this audit.
 
+## Project isolation note
+
+The database inspected in this audit is the known LUNDER production project
+`bavsrogbmfbalvpmbozc`. The Printessa Vercel/runtime environment was not inspected, so this audit
+does not prove which Supabase project the Printessa deployment currently uses. Before client
+delivery, explicitly verify that Printessa has its own isolated Supabase project, storage buckets,
+keys and data. Do not deploy a client storefront using LUNDER production credentials or reuse
+LUNDER customer/order data. No environment variables or production settings were changed.
+
 ## Migration-history mismatch — deployment blocker
 
 The repository currently contains 20 SQL migration files. The production migration-history query

@@ -10,6 +10,8 @@ import { setPageSeo } from '@/lib/seo'
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([])
   const [categories, setCategories] = useState<Category[]>([])
+  const [categoriesFailed, setCategoriesFailed] = useState(false)
+  const [categoriesRetry, setCategoriesRetry] = useState(0)
   const [loading, setLoading] = useState(true)
   const [failed, setFailed] = useState(false)
   const [searchParams, setSearchParams] = useSearchParams()
@@ -29,16 +31,22 @@ export default function ProductsPage() {
           .eq('is_active', true)
           .order('name')
         if (error) throw error
-        if (active) setCategories((cats as Category[]) ?? [])
+        if (active) {
+          setCategories((cats as Category[]) ?? [])
+          setCategoriesFailed(false)
+        }
       } catch {
-        if (active) setCategories([])
+        if (active) {
+          setCategories([])
+          setCategoriesFailed(true)
+        }
       }
     }
     void loadCategories()
     return () => {
       active = false
     }
-  }, [])
+  }, [categoriesRetry])
 
   useEffect(() => {
     setPageSeo({ title: 'Boutique | LUNDER’S 3D STUDIO', description: 'Découvrez notre catalogue de produits imprimés en 3D et de créations sur mesure en Algérie.', canonicalUrl: `${window.location.origin}/boutique/produits` })
@@ -101,6 +109,15 @@ export default function ProductsPage() {
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
       <h1 className="mb-6 text-3xl font-bold text-offwhite">Boutique</h1>
+
+      {categoriesFailed && (
+        <div role="alert" className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-brand-red/30 bg-brand-red/10 px-4 py-3 text-sm text-brand-red-light">
+          <span>Les catégories ne sont pas disponibles pour le moment. Le catalogue reste consultable.</span>
+          <button type="button" onClick={() => setCategoriesRetry((value) => value + 1)} className="btn-secondary">
+            Réessayer
+          </button>
+        </div>
+      )}
 
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="relative max-w-sm flex-1">

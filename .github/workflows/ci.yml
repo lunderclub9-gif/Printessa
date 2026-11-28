@@ -25,10 +25,10 @@ jobs:
       - name: Migration version uniqueness report (non-blocking)
         run: |
           node -e "const fs=require('node:fs'); const path=require('node:path'); const dir='supabase/migrations'; const files=fs.readdirSync(dir).filter(f=>f.endsWith('.sql')); const seen=new Map(); for (const file of files) { const version=file.split('_')[0]; if (seen.has(version)) console.log('::warning::Duplicate Supabase migration version ' + version + ': ' + seen.get(version) + ' and ' + file); else seen.set(version,file); }"
-      - name: Dependency security report (non-blocking)
+      - name: Dependency security gate (zero advisories)
         run: |
           npm audit --json > /tmp/npm-audit.json || true
-          node -e "const a=require('/tmp/npm-audit.json'); for (const [name,v] of Object.entries(a.vulnerabilities || {})) { const via=(v.via || []).map(x => typeof x === 'string' ? x : x.name + ': ' + x.title).join('; '); console.log(name + ' | ' + v.severity + ' | range: ' + v.range + ' | fix: ' + JSON.stringify(v.fixAvailable) + ' | ' + via); } console.log('Total vulnerabilities:', JSON.stringify(a.metadata?.vulnerabilities || {}));"
+          node -e "const a=require('/tmp/npm-audit.json'); const totals=a.metadata?.vulnerabilities; if (!totals) { console.error('npm audit did not return vulnerability metadata'); process.exit(1); } for (const [name,v] of Object.entries(a.vulnerabilities || {})) { const via=(v.via || []).map(x => typeof x === 'string' ? x : x.name + ': ' + x.title).join('; '); console.log(name + ' | ' + v.severity + ' | range: ' + v.range + ' | fix: ' + JSON.stringify(v.fixAvailable) + ' | ' + via); } console.log('Total vulnerabilities:', JSON.stringify(totals)); if (totals.total > 0) process.exit(1);"
       - name: Lint
         run: npm run lint
       - name: Typecheck

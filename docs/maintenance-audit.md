@@ -157,10 +157,11 @@ or changing production data.
 ## Dependency review — resolved on the current maintenance head
 
 - The current lockfile was updated through a separate compatible dependency-maintenance pass.
-  The latest successful GitHub Actions run on `b429c54c08ff7dc1c13b35ebe173d81777d89acd`
-  completed `npm ci` and reported `found 0 vulnerabilities`.
-- The CI security-report step independently reported zero info, low, moderate, high and critical
-  advisories. Keep the report in CI so future lockfile changes are checked continuously.
+  The latest successful scan on `ab92c8f1b8fc719de42cb28655c923364d28e158` completed `npm ci`
+  and reported `found 0 vulnerabilities` (info, low, moderate, high and critical all zero).
+- GitHub Actions were upgraded from the Node.js 20 action runtime to Node.js 24-compatible
+  releases. CI now fails if npm audit cannot return metadata or reports any vulnerability; the
+  dependency-candidate workflow also refuses to commit a lockfile while any advisories remain.
 - This is a result for the current lockfile and scan date, not a guarantee that future dependency
   releases will remain vulnerability-free.
 

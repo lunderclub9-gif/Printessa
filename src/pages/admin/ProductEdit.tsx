@@ -74,6 +74,7 @@ export default function AdminProductEdit() {
   const [variantPrice, setVariantPrice] = useState('')
   const [variantStock, setVariantStock] = useState('0')
   const [creatingVariants, setCreatingVariants] = useState(false)
+  const [creatingDefaultOptions, setCreatingDefaultOptions] = useState(false)
 
   const [form, setForm] = useState({
     name: '',
@@ -389,6 +390,54 @@ export default function AdminProductEdit() {
     }
     } catch {
       setError('Connexion interrompue pendant la suppression du modèle 3D. Rechargez le produit pour vérifier son état; le fichier non confirmé sera conservé.')
+    }
+  }
+
+  const createDefaultOptions = async () => {
+    if (!id || creatingDefaultOptions) return
+    setCreatingDefaultOptions(true)
+    setError(null)
+
+    try {
+      const existing = await supabase.from('product_options').select('id,name').eq('product_id', id)
+      if (existing.error) throw existing.error
+
+      const names = new Set((existing.data ?? []).map((item) => item.name.trim().toLocaleLowerCase()))
+      const defaults = [
+        { name: 'Forme', sort_order: 0 },
+        { name: 'Couleur', sort_order: 1 },
+      ]
+
+      for (const option of defaults) {
+        if (names.has(option.name.toLocaleLowerCase())) continue
+        const { error: insertError } = await supabase
+          .from('product_options')
+          .insert({ product_id: id, ...option })
+        if (insertError) throw insertError
+      }
+
+      const refreshed = await supabase.from('product_options').select('id,name').eq('product_id', id)
+      if (refreshed.error) throw refreshed.error
+
+      const ordered = [...(refreshed.data ?? [])].sort((a, b) => {
+        const rank = (name: string) => /^forme$/i.test(name.trim()) ? 0 : /^couleur$/i.test(name.trim()) ? 1 : 2
+        return rank(a.name) - rank(b.name) || a.name.localeCompare(b.name)
+      })
+
+      const updates = await Promise.all(
+        ordered.map((option, index) =>
+          supabase.from('product_options').update({ sort_order: index }).eq('id', option.id)
+        )
+      )
+      const failedUpdate = updates.find((result) => result.error)
+      if (failedUpdate?.error) throw failedUpdate.error
+
+      await loadOptions(id)
+    } catch {
+      setError('Impossible de créer ou d’ordonner les options par défaut. Rechargez les options puis réessayez.')
+      await loadOptions(id)
+    } finally {
+      setCreatingDefaultOptions(false)
     }
   }
 
@@ -1198,24 +1247,7 @@ export default function AdminProductEdit() {
                 1. Ajoutez les formes et les couleurs une seule fois. 2. Ajoutez une photo à chaque valeur si nécessaire. 3. Pour chaque forme, cochez uniquement les couleurs disponibles et créez les variantes correspondantes. Le choix du client sera enregistré dans sa commande.
               </p>
 
-              <button type="button" onClick={async () => {
-                if (!id) return
-                const existing = await supabase.from('product_options').select('id,name').eq('product_id', id)
-                if (existing.error) { setError('Impossible de charger les options du produit.'); return }
-                const names = new Set((existing.data ?? []).map((item) => item.name.trim().toLowerCase()))
-                if (!names.has('forme')) {
-                  const { error } = await supabase.from('product_options').insert({ product_id: id, name: 'Forme', sort_order: 0 })
-                  if (error) { setError('Impossible de créer Forme.'); return }
-                }
-                if (!names.has('couleur')) {
-                  const { error } = await supabase.from('product_options').insert({ product_id: id, name: 'Couleur', sort_order: 1 })
-                  if (error) { setError('Impossible de créer Couleur.'); return }
-                }
-                const refreshed = await supabase.from('product_options').select('id,name').eq('product_id', id)
-                const ordered = (refreshed.data ?? []).slice().sort((a,b) => (/^forme$/i.test(a.name)?0:/^couleur$/i.test(a.name)?1:2)-(/^forme$/i.test(b.name)?0:/^couleur$/i.test(b.name)?1:2))
-                for (let index=0; index<ordered.length; index++) await supabase.from('product_options').update({ sort_order:index }).eq('id',ordered[index].id)
-                await loadOptions(id)
-              }} className="btn-secondary mb-3"><Plus className="h-4 w-4"/> Créer rapidement Forme + Couleur</button>
+              <button type="button" onClick={createDefaultOptions} disabled={creatingDefaultOptions} className="btn-secondary mb-3 disabled:cursor-not-allowed disabled:opacity-60"><Plus className="h-4 w-4"/> {creatingDefaultOptions ? 'Création des options…' : 'Créer rapidement Forme + Couleur'}</button>
               <div className="flex gap-2">
                 <input
                   type="text"

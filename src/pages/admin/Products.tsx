@@ -73,19 +73,32 @@ export default function AdminProducts() {
       productDeleted = true
       setProducts((current) => current.filter((item) => item.id !== product.id))
 
-      const collectUnreferenced = async (
-        bucket: 'product-images' | 'product-models',
-        paths: string[],
-        table: 'product_images' | 'products',
-        column: 'image_url' | 'model_url'
-      ) => {
+      const collectUnreferencedImages = async (paths: string[]) => {
         const unreferenced: string[] = []
         for (const objectPath of paths) {
-          const publicUrl = supabase.storage.from(bucket).getPublicUrl(objectPath).data.publicUrl
+          const publicUrl = supabase.storage.from('product-images').getPublicUrl(objectPath).data.publicUrl
+          const [galleryResult, variantResult, optionValueResult] = await Promise.all([
+            supabase.from('product_images').select('id').eq('image_url', publicUrl).limit(1),
+            supabase.from('product_variants').select('id').eq('image_url', publicUrl).limit(1),
+            supabase.from('product_option_values').select('id').eq('image_url', publicUrl).limit(1),
+          ])
+          if (galleryResult.error || variantResult.error || optionValueResult.error) {
+            throw galleryResult.error || variantResult.error || optionValueResult.error
+          }
+          if (!galleryResult.data?.length && !variantResult.data?.length && !optionValueResult.data?.length) {
+            unreferenced.push(objectPath)
+          }
+        }
+        return unreferenced
+      }
+      const collectUnreferencedModels = async (paths: string[]) => {
+        const unreferenced: string[] = []
+        for (const objectPath of paths) {
+          const publicUrl = supabase.storage.from('product-models').getPublicUrl(objectPath).data.publicUrl
           const { data: references, error: referenceError } = await supabase
-            .from(table)
+            .from('products')
             .select('id')
-            .eq(column, publicUrl)
+            .eq('model_url', publicUrl)
             .limit(1)
           if (referenceError) throw referenceError
           if (!references?.length) unreferenced.push(objectPath)
@@ -94,8 +107,8 @@ export default function AdminProducts() {
       }
 
       const [unusedImages, unusedModels] = await Promise.all([
-        collectUnreferenced('product-images', imagePaths, 'product_images', 'image_url'),
-        collectUnreferenced('product-models', modelPaths, 'products', 'model_url'),
+        collectUnreferencedImages(imagePaths),
+        collectUnreferencedModels(modelPaths),
       ])
       const [imageCleanup, modelCleanup] = await Promise.all([
         unusedImages.length ? supabase.storage.from('product-images').remove(unusedImages) : Promise.resolve({ error: null }),

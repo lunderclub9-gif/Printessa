@@ -1,3 +1,7 @@
+import { canAddCartLine, cartLineKey, MAX_ORDER_LINES, parseStoredCart, type CartItem } from './cart-storage'
+
+export type { CartItem } from './cart-storage'
+
 import {
   createContext,
   useCallback,
@@ -8,18 +12,6 @@ import {
   type ReactNode,
 } from 'react'
 
-export type CartItem = {
-  key: string
-  productId: string
-  variantId: string | null
-  slug: string
-  name: string
-  variantLabel: string | null
-  unitPriceDzd: number
-  quantity: number
-  imageUrl: string | null
-}
-
 const STORAGE_KEY = 'lunders_panier_v1'
 const MAX_QUANTITY = 10
 
@@ -27,7 +19,7 @@ type CartContextValue = {
   items: CartItem[]
   count: number
   subtotal: number
-  add: (item: Omit<CartItem, 'key' | 'quantity'>, quantity?: number) => void
+  add: (item: Omit<CartItem, 'key' | 'quantity'>, quantity?: number) => boolean
   setQuantity: (key: string, quantity: number) => void
   remove: (key: string) => void
   clear: () => void
@@ -37,7 +29,7 @@ const CartContext = createContext<CartContextValue>({
   items: [],
   count: 0,
   subtotal: 0,
-  add: () => {},
+  add: () => true,
   setQuantity: () => {},
   remove: () => {},
   clear: () => {},
@@ -45,17 +37,7 @@ const CartContext = createContext<CartContextValue>({
 
 function readStoredCart(): CartItem[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return []
-    const parsed: unknown = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return []
-    return parsed.filter(
-      (item): item is CartItem =>
-        !!item &&
-        typeof item === 'object' &&
-        typeof (item as CartItem).productId === 'string' &&
-        typeof (item as CartItem).quantity === 'number'
-    )
+    return parseStoredCart(localStorage.getItem(STORAGE_KEY))
   } catch {
     /* stockage local indisponible (mode privé) : panier vide */
     return []
@@ -74,7 +56,9 @@ export function CartProvider({ children }: { children: ReactNode }) {
   }, [items])
 
   const add = useCallback((item: Omit<CartItem, 'key' | 'quantity'>, quantity = 1) => {
-    const key = `${item.productId}::${item.variantId ?? 'base'}`
+    const key = cartLineKey(item.productId, item.variantId, item.selectedColor ?? null)
+    if (!canAddCartLine(items, key)) return false
+
     setItems((current) => {
       const existing = current.find((line) => line.key === key)
       if (existing) {
@@ -84,9 +68,12 @@ export function CartProvider({ children }: { children: ReactNode }) {
             : line
         )
       }
-      return [...current, { ...item, key, quantity: Math.min(MAX_QUANTITY, Math.max(1, quantity)) }]
+      return current.length >= MAX_ORDER_LINES
+        ? current
+        : [...current, { ...item, key, quantity: Math.min(MAX_QUANTITY, Math.max(1, quantity)) }]
     })
-  }, [])
+    return true
+  }, [items])
 
   const setQuantity = useCallback((key: string, quantity: number) => {
     setItems((current) =>

@@ -20,69 +20,92 @@ export default function ProductDetailPage() {
   const [options, setOptions] = useState<ProductOption[]>([])
   const [variants, setVariants] = useState<ProductVariant[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [reloadKey, setReloadKey] = useState(0)
   const [activeImage, setActiveImage] = useState<string | null>(null)
   const [mediaMode, setMediaMode] = useState<'photos' | '3d'>('photos')
   const [imageFullscreen, setImageFullscreen] = useState(false)
   const [selectedColor, setSelectedColor] = useState<string | null>(null)
   const [selection, setSelection] = useState<Record<string, string>>({})
   const [added, setAdded] = useState(false)
+  const [cartLimitError, setCartLimitError] = useState<string | null>(null)
   const { add } = useCart()
 
   useEffect(() => {
-    if (!slug) return
+    let active = true
+    if (!slug) {
+      setProduct(null)
+      setLoading(false)
+      return
+    }
+
     ;(async () => {
       setLoading(true)
-      const { data } = await supabase
-        .from('products')
-        .select('*, category:categories(*)')
-        .eq('slug', slug)
-        .eq('status', 'published')
-        .maybeSingle()
-
-      if (!data) {
-        setLoading(false)
-        return
-      }
-
-      const p = data as Product
-      setProduct(p)
-
-      const [{ data: imgs }, { data: opts }, { data: vars }] = await Promise.all([
-        supabase.from('product_images').select('*').eq('product_id', p.id).order('sort_order'),
-        supabase
-          .from('product_options')
-          .select('*, values:product_option_values(*)')
-          .eq('product_id', p.id)
-          .order('sort_order'),
-        supabase
-          .from('product_variants')
-          .select('*, values:product_variant_values(option_value_id)')
-          .eq('product_id', p.id)
-          .eq('is_active', true),
-      ])
-
-      const imgList = (imgs as ProductImage[]) ?? []
-      setImages(imgList)
-      const primary = imgList.find((i) => i.is_primary) ?? imgList[0]
-      setActiveImage(primary?.image_url ?? null)
-      setMediaMode(imgList.length > 0 ? 'photos' : p.model_url ? '3d' : 'photos')
-
-      const optionList = ((opts as ProductOption[]) ?? []).map((option) => ({
-        ...option,
-        values: [...(option.values ?? [])]
-          .filter((value) => value.is_active)
-          .sort((a, b) => a.sort_order - b.sort_order || a.value.localeCompare(b.value)),
-      }))
-      setOptions(optionList)
-      setVariants((vars as ProductVariant[]) ?? [])
-
-      // Let the customer choose each option in sequence; never preselect a value.
+      setLoadError(null)
+      setProduct(null)
+      setImages([])
+      setOptions([])
+      setVariants([])
       setSelection({})
+      setSelectedColor(null)
+      try {
+        const { data, error: productError } = await supabase
+          .from('products')
+          .select('*, category:categories(*)')
+          .eq('slug', slug)
+          .eq('status', 'published')
+          .maybeSingle()
 
-      if (p.available_colors.length > 0) setSelectedColor(p.available_colors[0])
-      setLoading(false)
+        if (productError) throw productError
+        if (!data) return
+
+        const p = data as Product
+        const [imageResult, optionResult, variantResult] = await Promise.all([
+          supabase.from('product_images').select('*').eq('product_id', p.id).order('sort_order'),
+          supabase
+            .from('product_options')
+            .select('*, values:product_option_values(*)')
+            .eq('product_id', p.id)
+            .order('sort_order'),
+          supabase
+            .from('product_variants')
+            .select('*, values:product_variant_values(option_value_id)')
+            .eq('product_id', p.id)
+            .eq('is_active', true),
+        ])
+
+        const queryError = imageResult.error || optionResult.error || variantResult.error
+        if (queryError) throw queryError
+
+        if (!active) return
+        const imgList = (imageResult.data as ProductImage[]) ?? []
+        const optionList = ((optionResult.data as ProductOption[]) ?? []).map((option) => ({
+          ...option,
+          values: [...(option.values ?? [])]
+            .filter((value) => value.is_active)
+            .sort((a, b) => a.sort_order - b.sort_order || a.value.localeCompare(b.value)),
+        }))
+
+        setProduct(p)
+        setImages(imgList)
+        const primary = imgList.find((image) => image.is_primary) ?? imgList[0]
+        setActiveImage(primary?.image_url ?? null)
+        setMediaMode(imgList.length > 0 ? 'photos' : p.model_url ? '3d' : 'photos')
+        setOptions(optionList)
+        setVariants((variantResult.data as ProductVariant[]) ?? [])
+        // Let the customer choose each option in sequence; never preselect a value.
+        if (p.available_colors?.length > 0) setSelectedColor(p.available_colors[0])
+      } catch {
+        if (active) setLoadError('Impossible de charger ce produit. Vérifiez votre connexion puis réessayez.')
+      } finally {
+        if (active) setLoading(false)
+      }
     })()
-  }, [slug])
+
+    return () => {
+      active = false
+    }
+  }, [slug, reloadKey])
 
   useEffect(() => {
     if (!product) return
@@ -169,6 +192,17 @@ export default function ProductDetailPage() {
     )
   }
 
+  if (loadError) {
+    return (
+      <div className="mx-auto max-w-7xl px-4 py-24 text-center">
+        <p role="alert" className="mb-4 text-sm text-brand-red-light">{loadError}</p>
+        <button type="button" onClick={() => setReloadKey((value) => value + 1)} className="btn-primary">
+          Réessayer
+        </button>
+      </div>
+    )
+  }
+
   if (!product) {
     return (
       <div className="mx-auto max-w-7xl px-4 py-24 text-center">
@@ -200,15 +234,21 @@ export default function ProductDetailPage() {
 
   const handleAddToCart = () => {
     if (!product || !inStock) return
-    add({
+    const accepted = add({
       productId: product.id,
       variantId: matchedVariant?.id ?? null,
       slug: product.slug,
       name: product.name,
       variantLabel: selectedVariantLabel || null,
+      selectedColor: selectableOptions.length === 0 ? selectedColor : null,
       unitPriceDzd: displayPrice,
       imageUrl: activeImage,
     })
+    if (!accepted) {
+      setCartLimitError('Votre panier contient déjà 20 références différentes. Retirez un article avant d’en ajouter un autre.')
+      return
+    }
+    setCartLimitError(null)
     setAdded(true)
     window.setTimeout(() => setAdded(false), 3000)
   }
@@ -394,6 +434,9 @@ export default function ProductDetailPage() {
                 Voir le panier
               </Link>
             </div>
+            {cartLimitError && (
+              <p role="alert" className="text-sm text-brand-red-light">{cartLimitError}</p>
+            )}
             {added && (
               <p role="status" className="text-sm text-green-400">
                 Ajouté au panier.

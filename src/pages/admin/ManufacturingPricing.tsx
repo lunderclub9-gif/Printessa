@@ -67,6 +67,7 @@ export default function ManufacturingPricingPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
+  const [loadFailed, setLoadFailed] = useState(false)
 
   const [newMaterialName, setNewMaterialName] = useState('')
   const [newMaterialPrice, setNewMaterialPrice] = useState('')
@@ -75,37 +76,48 @@ export default function ManufacturingPricingPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [{ data: mats }, { data: rules }] = await Promise.all([
-      supabase.from('manufacturing_materials').select('*').order('sort_order').order('name'),
-      supabase.from('manufacturing_pricing').select('*').eq('id', true).maybeSingle(),
-    ])
-    setMaterials((mats as MfgMaterial[]) ?? [])
-    if (rules) {
-      const row = rules as Record<string, unknown>
-      setPricing({
-        price_per_hour_dzd: Number(row.price_per_hour_dzd ?? 0),
-        machine_hourly_cost_dzd: Number(row.machine_hourly_cost_dzd ?? 0),
-        electricity_per_hour_dzd: Number(row.electricity_per_hour_dzd ?? 0),
-        minimum_print_charge_dzd: Number(row.minimum_print_charge_dzd ?? 0),
-        extra_production_dzd: Number(row.extra_production_dzd ?? 0),
-        design_preparation_fee_dzd: Number(row.design_preparation_fee_dzd ?? 0),
-        modeling_fee_dzd: Number(row.modeling_fee_dzd ?? 0),
-        assembly_fee_dzd: Number(row.assembly_fee_dzd ?? 0),
-        finishing_fee_dzd: Number(row.finishing_fee_dzd ?? 0),
-        painting_fee_dzd: Number(row.painting_fee_dzd ?? 0),
-        margin_percent: Number(row.margin_percent ?? 0),
-        minimum_order_dzd: Number(row.minimum_order_dzd ?? 0),
-        complexity_fee_dzd: Number(row.complexity_fee_dzd ?? 0),
-        waste_percent: Number(row.waste_percent ?? 0),
-        quantity_discounts: (row.quantity_discounts as { minQuantity: number; percent: number }[]) ?? [],
-        rush_fee_percent: Number(row.rush_fee_percent ?? 0),
-        validity_days: Number(row.validity_days ?? 14),
-        effective_volume_percent: Number(row.effective_volume_percent ?? 35),
-        print_speed_g_per_hour: Number(row.print_speed_g_per_hour ?? 12),
-      })
-      setDiscountsText(JSON.stringify(row.quantity_discounts ?? []))
+    setLoadFailed(false)
+    setError(null)
+    try {
+      const [materialsResult, pricingResult] = await Promise.all([
+        supabase.from('manufacturing_materials').select('*').order('sort_order').order('name'),
+        supabase.from('manufacturing_pricing').select('*').eq('id', true).maybeSingle(),
+      ])
+      if (materialsResult.error || pricingResult.error) {
+        throw materialsResult.error || pricingResult.error
+      }
+      setMaterials((materialsResult.data as MfgMaterial[]) ?? [])
+      if (pricingResult.data) {
+        const row = pricingResult.data as Record<string, unknown>
+        setPricing({
+          price_per_hour_dzd: Number(row.price_per_hour_dzd ?? 0),
+          machine_hourly_cost_dzd: Number(row.machine_hourly_cost_dzd ?? 0),
+          electricity_per_hour_dzd: Number(row.electricity_per_hour_dzd ?? 0),
+          minimum_print_charge_dzd: Number(row.minimum_print_charge_dzd ?? 0),
+          extra_production_dzd: Number(row.extra_production_dzd ?? 0),
+          design_preparation_fee_dzd: Number(row.design_preparation_fee_dzd ?? 0),
+          modeling_fee_dzd: Number(row.modeling_fee_dzd ?? 0),
+          assembly_fee_dzd: Number(row.assembly_fee_dzd ?? 0),
+          finishing_fee_dzd: Number(row.finishing_fee_dzd ?? 0),
+          painting_fee_dzd: Number(row.painting_fee_dzd ?? 0),
+          margin_percent: Number(row.margin_percent ?? 0),
+          minimum_order_dzd: Number(row.minimum_order_dzd ?? 0),
+          complexity_fee_dzd: Number(row.complexity_fee_dzd ?? 0),
+          waste_percent: Number(row.waste_percent ?? 0),
+          quantity_discounts: (row.quantity_discounts as { minQuantity: number; percent: number }[]) ?? [],
+          rush_fee_percent: Number(row.rush_fee_percent ?? 0),
+          validity_days: Number(row.validity_days ?? 14),
+          effective_volume_percent: Number(row.effective_volume_percent ?? 35),
+          print_speed_g_per_hour: Number(row.print_speed_g_per_hour ?? 12),
+        })
+        setDiscountsText(JSON.stringify(row.quantity_discounts ?? []))
+      }
+    } catch {
+      setLoadFailed(true)
+      setError('Impossible de charger les règles de fabrication et les matières. Aucune valeur par défaut ne sera enregistrée.')
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
   }, [])
 
   useEffect(() => {
@@ -120,26 +132,52 @@ export default function ManufacturingPricingPage() {
       const parsed = JSON.parse(discountsText)
       if (!Array.isArray(parsed)) throw new Error('not an array')
       discounts = parsed.map((tier) => ({
-        minQuantity: Number(tier.minQuantity) || 0,
-        percent: Number(tier.percent) || 0,
+        minQuantity: Number(tier.minQuantity),
+        percent: Number(tier.percent),
       }))
+      if (discounts.some((tier) =>
+        !Number.isSafeInteger(tier.minQuantity) || tier.minQuantity < 1 ||
+        !Number.isFinite(tier.percent) || tier.percent < 0 || tier.percent > 100
+      )) throw new Error('invalid discount tier')
+      const quantities = discounts.map((tier) => tier.minQuantity)
+      if (new Set(quantities).size !== quantities.length) throw new Error('duplicate discount quantity')
+      discounts.sort((a, b) => a.minQuantity - b.minQuantity)
     } catch {
-      setError('Les remises quantité doivent être un tableau JSON valide.')
+      setError('Les remises quantité doivent contenir des paliers uniques : quantité entière positive et remise entre 0 et 100 %.')
+      return
+    }
+    const numericValues = Object.entries(pricing).filter(([key]) => key !== 'quantity_discounts')
+    if (numericValues.some(([, value]) => typeof value !== 'number' || !Number.isFinite(value) || value < 0)) {
+      setError('Tous les paramètres de tarification doivent être des nombres positifs ou nuls.')
+      return
+    }
+    if (
+      !Number.isSafeInteger(pricing.validity_days) || pricing.validity_days < 1 ||
+      pricing.effective_volume_percent <= 0 || pricing.effective_volume_percent > 100 ||
+      pricing.waste_percent > 100 || pricing.rush_fee_percent > 100 ||
+      pricing.print_speed_g_per_hour <= 0
+    ) {
+      setError('Vérifiez la validité du devis, le volume utile, les pertes, le supplément urgence et la vitesse d’impression.')
       return
     }
     setSaving(true)
-    const { error: writeError } = await supabase
-      .from('manufacturing_pricing')
-      .upsert(
-        { id: true, ...pricing, quantity_discounts: discounts, updated_at: new Date().toISOString() },
-        { onConflict: 'id' }
-      )
-    setSaving(false)
-    if (writeError) {
-      setError("Impossible d'enregistrer la tarification.")
-      return
+    try {
+      const { error: writeError } = await supabase
+        .from('manufacturing_pricing')
+        .upsert(
+          { id: true, ...pricing, quantity_discounts: discounts, updated_at: new Date().toISOString() },
+          { onConflict: 'id' }
+        )
+      if (writeError) {
+        setError("Impossible d'enregistrer la tarification.")
+        return
+      }
+      setSaved(true)
+    } catch {
+      setError("Connexion interrompue. Vérifiez si la tarification a été enregistrée avant de réessayer.")
+    } finally {
+      setSaving(false)
     }
-    setSaved(true)
   }
 
   const addMaterial = async () => {
@@ -158,45 +196,73 @@ export default function ManufacturingPricingPage() {
       .split(',')
       .map((c) => c.trim())
       .filter(Boolean)
-    const { error: insertError } = await supabase.from('manufacturing_materials').insert({
-      name: newMaterialName.trim(),
-      price_per_gram_dzd: Math.round(price),
-      multiplier: Number.isFinite(multiplier) && multiplier > 0 ? multiplier : 1,
-      colors,
-      is_available: true,
-      sort_order: materials.length,
-    })
-    if (insertError) {
-      setError('Impossible d’ajouter cette matière (nom déjà utilisé ?).')
+    if (!Number.isSafeInteger(price)) {
+      setError('Le prix par gramme doit être un nombre entier.')
       return
     }
-    setNewMaterialName('')
-    setNewMaterialPrice('')
-    setNewMaterialMultiplier('1')
-    setNewMaterialColors('')
-    await load()
+    if (!Number.isFinite(multiplier) || multiplier <= 0) {
+      setError('Le multiplicateur doit être supérieur à zéro.')
+      return
+    }
+    try {
+      const { error: insertError } = await supabase.from('manufacturing_materials').insert({
+        name: newMaterialName.trim(),
+        price_per_gram_dzd: price,
+        multiplier,
+        colors: [...new Set(colors)],
+        is_available: true,
+        sort_order: materials.length,
+      })
+      if (insertError) {
+        setError('Impossible d’ajouter cette matière (nom déjà utilisé ?).')
+        return
+      }
+      setNewMaterialName('')
+      setNewMaterialPrice('')
+      setNewMaterialMultiplier('1')
+      setNewMaterialColors('')
+      await load()
+    } catch {
+      setError("Connexion interrompue. Vérifiez si la matière a été ajoutée avant de réessayer.")
+    }
   }
 
   const updateMaterial = async (material: MfgMaterial, patch: Partial<MfgMaterial>) => {
-    const { error: updateError } = await supabase
-      .from('manufacturing_materials')
-      .update(patch)
-      .eq('id', material.id)
-    if (updateError) {
-      setError('Impossible de mettre à jour cette matière.')
+    if (
+      (patch.price_per_gram_dzd !== undefined && (!Number.isSafeInteger(patch.price_per_gram_dzd) || patch.price_per_gram_dzd < 0)) ||
+      (patch.density_g_cm3 !== undefined && (!Number.isFinite(patch.density_g_cm3) || patch.density_g_cm3 <= 0)) ||
+      (patch.multiplier !== undefined && (!Number.isFinite(patch.multiplier) || patch.multiplier <= 0))
+    ) {
+      setError('Vérifiez le prix, la densité et le multiplicateur de cette matière.')
       return
     }
-    await load()
+    try {
+      const { error: updateError } = await supabase
+        .from('manufacturing_materials')
+        .update(patch)
+        .eq('id', material.id)
+      if (updateError) {
+        setError('Impossible de mettre à jour cette matière.')
+        return
+      }
+      await load()
+    } catch {
+      setError('Connexion interrompue. Vérifiez les valeurs de la matière avant de réessayer.')
+    }
   }
 
   const deleteMaterial = async (id: string) => {
     if (!(await confirmAction({ title: 'Supprimer cette matière de fabrication ?', description: 'Cette matière sera retirée du catalogue de fabrication. Les devis déjà créés conservent leurs instantanés de tarification.', confirmLabel: 'Supprimer la matière', tone: 'danger' }))) return
-    const { error: deleteError } = await supabase.from('manufacturing_materials').delete().eq('id', id)
-    if (deleteError) {
-      setError('Impossible de supprimer cette matière.')
-      return
+    try {
+      const { error: deleteError } = await supabase.from('manufacturing_materials').delete().eq('id', id)
+      if (deleteError) {
+        setError('Impossible de supprimer cette matière.')
+        return
+      }
+      await load()
+    } catch {
+      setError('Connexion interrompue. Vérifiez si la matière a été supprimée avant de réessayer.')
     }
-    await load()
   }
 
   const setField = (key: keyof MfgPricing, value: number) => {
@@ -207,6 +273,16 @@ export default function ManufacturingPricingPage() {
     return (
       <div className="flex items-center justify-center py-16">
         <Loader2 className="h-8 w-8 animate-spin text-brand-red" />
+      </div>
+    )
+  }
+
+  if (loadFailed) {
+    return (
+      <div className="animate-fade-in">
+        <h1 className="mb-3 text-2xl font-bold text-offwhite">Tarification fabrication sur mesure</h1>
+        <div role="alert" className="admin-feedback admin-feedback-error mb-4">{error}</div>
+        <button type="button" onClick={() => void load()} className="btn-secondary">Réessayer</button>
       </div>
     )
   }

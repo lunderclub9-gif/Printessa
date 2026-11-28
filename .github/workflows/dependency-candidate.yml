@@ -1,0 +1,69 @@
+name: Dependency update candidate
+
+on:
+  push:
+    branches: ['maintenance/consolidated-migrations']
+    paths:
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/dependency-candidate.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  candidate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - name: Update npm security tooling
+        run: npm install --global npm@11
+      - name: Resolve non-breaking security updates
+        run: npm audit fix
+      - name: Install updated lockfile
+        run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Unit tests
+        run: npm test
+      - name: Production build
+        run: npm run build
+      - name: Require zero remaining dependency advisories
+        if: always()
+        run: |
+          npm audit --json > /tmp/npm-audit.json || true
+          node -e "const a=require('/tmp/npm-audit.json'); const totals=a.metadata?.vulnerabilities; if (!totals) { console.error('npm audit did not return vulnerability metadata'); process.exit(1); } console.log('Remaining dependency advisories:', JSON.stringify(totals)); for (const [name,v] of Object.entries(a.vulnerabilities || {})) console.log(name + ' | ' + v.severity + ' | ' + v.range); if (totals.total > 0) process.exit(1);"
+      - name: Upload validated lockfile candidate
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: printessa-security-updated-lockfile
+          path: package-lock.json
+          if-no-files-found: error
+          retention-days: 7
+      - name: Commit validated lockfile update
+        if: success()
+        run: |
+          if [ -n "$(git status --porcelain -- package.json)" ]; then
+            echo "Unexpected package.json change; refusing automatic commit."
+            exit 1
+          fi
+          git add package-lock.json
+          if git diff --cached --quiet; then
+            echo "Lockfile already contains all compatible security updates."
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -m "fix: resolve dependency security advisories"
+            git fetch origin "${GITHUB_REF_NAME}"
+            git rebase FETCH_HEAD
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi

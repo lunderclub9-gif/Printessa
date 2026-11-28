@@ -18,6 +18,8 @@ export default function AdminCategories() {
   const [seoDescription, setSeoDescription] = useState('')
   const [seoKeywords, setSeoKeywords] = useState('')
   const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
 
   useEffect(() => {
     loadCategories()
@@ -25,9 +27,19 @@ export default function AdminCategories() {
 
   const loadCategories = async () => {
     setLoading(true)
-    const { data } = await supabase.from('categories').select('*').order('sort_order')
-    setCategories((data as Category[]) ?? [])
-    setLoading(false)
+    setError(null)
+    try {
+      const { data, error: queryError } = await supabase.from('categories').select('*').order('sort_order')
+      if (queryError) {
+        setError('Impossible de charger les catégories. Vérifiez la connexion puis réessayez.')
+        return
+      }
+      setCategories((data as Category[]) ?? [])
+    } catch {
+      setError('Connexion interrompue pendant le chargement des catégories.')
+    } finally {
+      setLoading(false)
+    }
   }
 
   const resetForm = () => {
@@ -43,24 +55,67 @@ export default function AdminCategories() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!name.trim()) return
-    setSaving(true)
-    const categorySlug = slugify(slug.trim() || name)
-    const seoPayload = { seo_title: seoTitle.trim() || null, seo_description: seoDescription.trim() || null, seo_keywords: seoKeywords.split(',').map((keyword) => keyword.trim()).filter(Boolean) }
-    const { error: seoColumnError } = await supabase.from('categories').select('seo_title,seo_description,seo_keywords').limit(1)
-    const basePayload = { name: name.trim(), slug: categorySlug, description: description || null }
-    const savePayload = seoColumnError ? basePayload : { ...basePayload, ...seoPayload }
-    if (editingId) {
-      const { error } = await supabase.from('categories').update(savePayload).eq('id', editingId)
-      if (!error && isPostHogEnabled) posthog.capture('category_updated', { category_id: editingId })
-    } else {
-      const { error } = await supabase.from('categories').insert({ ...savePayload, sort_order: categories.length })
-      if (!error && isPostHogEnabled) posthog.capture('category_created')
+    if (!name.trim()) {
+      setError('Le nom de la catégorie est obligatoire.')
+      return
     }
-    if (seoColumnError && (seoTitle.trim() || seoDescription.trim() || seoKeywords.trim())) window.alert('Catégorie enregistrée. Les champs SEO avancés seront sauvegardés après application de la migration 015.')
-    resetForm()
-    await loadCategories()
-    setSaving(false)
+
+    setSaving(true)
+    setError(null)
+    setNotice(null)
+    try {
+      const categorySlug = slugify(slug.trim() || name)
+      const seoPayload = {
+        seo_title: seoTitle.trim() || null,
+        seo_description: seoDescription.trim() || null,
+        seo_keywords: seoKeywords.split(',').map((keyword) => keyword.trim()).filter(Boolean),
+      }
+      const { error: seoColumnError } = await supabase
+        .from('categories')
+        .select('seo_title,seo_description,seo_keywords')
+        .limit(1)
+
+      const missingSeoColumns = Boolean(
+        seoColumnError &&
+        (seoColumnError.code === '42703' ||
+          seoColumnError.code === 'PGRST204' ||
+          /column .*seo_|schema cache/i.test(seoColumnError.message))
+      )
+      if (seoColumnError && !missingSeoColumns) {
+        setError('Impossible de vérifier les champs SEO. Aucune modification n’a été enregistrée.')
+        return
+      }
+
+      const basePayload = { name: name.trim(), slug: categorySlug, description: description.trim() || null }
+      const savePayload = missingSeoColumns ? basePayload : { ...basePayload, ...seoPayload }
+      const result = editingId
+        ? await supabase.from('categories').update(savePayload).eq('id', editingId)
+        : await supabase.from('categories').insert({ ...savePayload, sort_order: categories.length })
+
+      if (result.error) {
+        setError(
+          result.error.code === '23505'
+            ? 'Ce nom ou ce slug existe déjà. Choisissez une autre valeur.'
+            : "Impossible d'enregistrer cette catégorie. Vérifiez les informations puis réessayez."
+        )
+        return
+      }
+
+      if (isPostHogEnabled) {
+        posthog.capture(editingId ? 'category_updated' : 'category_created', editingId ? { category_id: editingId } : undefined)
+      }
+      if (missingSeoColumns && (seoTitle.trim() || seoDescription.trim() || seoKeywords.trim())) {
+        setNotice('Catégorie enregistrée. Les champs SEO avancés seront disponibles après application de la migration correspondante.')
+      } else {
+        setNotice('Catégorie enregistrée.')
+      }
+      resetForm()
+      await loadCategories()
+    } catch {
+      setError("Connexion interrompue. Vérifiez si la catégorie a été enregistrée avant de réessayer.")
+    } finally {
+      setSaving(false)
+    }
   }
 
   const handleEdit = (cat: Category) => {
@@ -76,10 +131,17 @@ export default function AdminCategories() {
 
   const handleDelete = async (id: string) => {
     if (!(await confirmAction({ title: 'Supprimer cette catégorie ?', description: 'Cette catégorie sera supprimée. Vérifiez les produits qui lui sont associés avant de continuer.', confirmLabel: 'Supprimer la catégorie', tone: 'danger' }))) return
-    const { error } = await supabase.from('categories').delete().eq('id', id)
-    if (error) return
-    if (isPostHogEnabled) posthog.capture('category_deleted', { category_id: id })
-    await loadCategories()
+    try {
+      const { error: deleteError } = await supabase.from('categories').delete().eq('id', id)
+      if (deleteError) {
+        setError('Impossible de supprimer cette catégorie. Vérifiez si des produits y sont encore associés.')
+        return
+      }
+      if (isPostHogEnabled) posthog.capture('category_deleted', { category_id: id })
+      await loadCategories()
+    } catch {
+      setError('Connexion interrompue. Vérifiez si la catégorie a été supprimée avant de réessayer.')
+    }
   }
 
   if (loading) {
@@ -99,6 +161,9 @@ export default function AdminCategories() {
           {showForm ? 'Annuler' : 'Ajouter une catégorie'}
         </button>
       </div>
+
+      {error && <div role="alert" className="admin-feedback admin-feedback-error mb-4">{error}</div>}
+      {notice && <div role="status" className="admin-feedback mb-4">{notice}</div>}
 
       {showForm && (
         <form onSubmit={handleSubmit} className="mb-6 admin-card animate-slide-up">

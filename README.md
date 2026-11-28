@@ -1,4 +1,4 @@
-# LUNDER'S 3D STUDIO
+# Printessa — client storefront copy
 
 French-only, DZD-only storefront and back office for a 3D-printing studio serving Algeria:
 catalog with 3D previews, guest cash-on-delivery checkout, Algerian delivery rates, custom
@@ -11,8 +11,19 @@ manufacturing requests with versioned quotes, and an owner-only admin area at `/
 ## Status
 
 The repository contains the storefront, owner back office, custom-manufacturing workflow and unit
-tests. The Supabase migrations have **not** been applied or verified against a live project; see the
-remaining validation limits at the bottom before any deployment.
+tests. This is a separate client copy based on the LUNDER starter; inherited LUNDER branding is
+still present in the public UI and must be replaced with the client's approved brand kit before
+delivery. No SQL migration was applied or changed during this maintenance audit.
+
+The database inspected during maintenance is LUNDER's production Supabase project
+(`bavsrogbmfbalvpmbozc`), not a verified Printessa client backend. The Printessa Vercel/runtime
+environment was not inspected. Before delivery, verify a separate client Supabase project,
+storage, keys and data; never deploy the client storefront using LUNDER production credentials.
+
+The inspected production database has schema drift: its migration history contains two versions
+absent from this repository, while live schema checks show some later workflow objects present and
+several repository additions absent. Do not run `db push` or deploy this branch until the history
+and live schema are reconciled.
 
 ## Architecture and trust boundaries
 
@@ -55,9 +66,14 @@ Every write that carries money, stock, privacy or status is only reachable throu
 | `handle_new_user()` | `SECURITY DEFINER` trigger | nobody | Creates the profile with `role = 'customer'` on signup |
 | `prevent_role_change()` | trigger | nobody | Rejects any role change coming from `authenticated` |
 
-With the sole exception of the sequence helper `next_order_number()`, each of these pins an explicit
-`search_path` (`public` for legacy functions; `pg_catalog, public` for new 012 functions) and has
-`EXECUTE` revoked from `PUBLIC`, granted only to the roles listed.
+**Important live-database exception:** the ACLs in the migration source are not a reliable
+description of current production grants. Read-only inspection confirmed that
+`manufacturing_calculate_full(...)` is directly executable by `anon` and `authenticated` and
+returns internal production-cost and margin details. The live `next_order_number()` function is
+also executable by API roles, and both roles have sequence privileges, allowing order-number
+sequence values to be consumed without creating orders. These are confirmed security/abuse
+findings, not intended customer features. They require a tested forward migration; no production
+grants were changed during this audit.
 
 ### Which boundary enforces what
 
@@ -67,8 +83,8 @@ With the sole exception of the sequence helper `next_order_number()`, each of th
 | Catalog visibility | RLS on `products`, `categories`, `product_images`, variant tables | public sees `published`/`active`; owner sees everything |
 | Order data | RLS on `orders`, `order_items`, `order_status_history` | owner only; **no anon grant at all** |
 | Custom request files | Storage bucket policies | private bucket, no anon `SELECT`, owner reads via 10-minute signed URLs |
-| Upload type and size | Storage bucket `allowed_mime_types` + `file_size_limit` | server-side, independent of the browser |
-| Upload content | browser sniffing (`src/lib/media.ts`) | convenience plus defence in depth — **not** a security boundary |
+| Declared MIME and per-object size | Storage bucket `allowed_mime_types` + `file_size_limit` | server enforces declared MIME/25 MiB cap, but MIME can be spoofed and there is no total quota/rate limit |
+| Upload content | browser sniffing (`src/lib/media.ts`) | client-side convenience only — **not** a security boundary; server-side content inspection is still required |
 | Prices, totals, shipping | `quote_delivery` + `create_guest_order` | nothing money-related is ever taken from the request body |
 | Stock | row locks in `create_guest_order` | the last unit cannot be oversold by concurrent checkouts |
 | Audit trail | `audit_log` with no write grant | append-only; only definer triggers can write |
@@ -104,8 +120,9 @@ With the sole exception of the sequence helper `next_order_number()`, each of th
   are capped, but there is no rate limit and abandoned uploads are not collected.
 - Owner sign-in/out is logged by the app calling `log_owner_event`; an API login that bypasses the app
   is not recorded. Real auth-event logging needs a server-side hook.
-- `next_order_number()` is executable by any role and can only consume sequence values — it reveals
-  nothing and merely creates gaps in the numbering.
+- `next_order_number()` is currently executable by API roles and can consume sequence values
+  without creating orders. This allows sequence burning; revoke direct API execution and sequence
+  privileges in a tested forward migration while preserving the owner-level checkout call path.
 - Authorisation is only as good as the policies: any new table needs RLS enabled and an owner policy,
   which is why every migration here does both explicitly.
 
@@ -139,33 +156,47 @@ Both are **public** — they ship to the browser. Never put a `service_role` key
 or any API secret in `.env`, in `store_settings`, or in client code. On a hosting provider, set
 secrets in that provider's secret store.
 
-## Migrations — apply in this order
+## Migrations — apply in timestamp order
 
-Run these against the Supabase project (SQL editor or `supabase db push`), **in filename order**.
-Later files depend on `public.is_owner()` and on the tables created earlier.
+Supabase applies migration files by their leading timestamp, not by the human-readable
+sequence number in the filename. The numeric labels **015 and 016 are out of order** relative
+to their timestamps. In addition, migrations **014 and 016 share the exact same leading timestamp
+`20261122120000`**, which creates a duplicate migration version and blocks a normal CLI migration
+run. Keep all 20 historical files unchanged per the maintenance decision; do not apply this chain,
+rename, squash or mark versions as applied until the collision and live production history are
+reconciled on an isolated database.
 
-| File | Creates | Depends on |
-|---|---|---|
-| `20261112190919_001_lunders_catalog_and_auth.sql` | profiles, categories, products, product_images, storage buckets | — |
-| `20261112193000_002_owner_access_and_profile_hardening.sql` | `is_owner()`, role-change guard, owner read policies | 001 |
-| `20261112200000_003_catalog_variants_and_media_limits.sql` | product options/variants, bucket size + MIME limits | 002 |
-| `20261112210000_004_algeria_geography.sql` | wilayas (69) and communes (1 541), seeded | 002 |
-| `20261112211000_005_delivery_and_orders.sql` | delivery rates, pickup points, orders, quote/order functions | 004 |
-| `20261112220000_006_custom_requests_and_quotes.sql` | private intake bucket, requests, files, versioned quotes | 005 |
-| `20261112230000_007_costs_settings_and_audit.sql` | materials, product costs, store settings, audit log | 002, 003, 005, 006 |
-| `20261113140000_008_auto_manufacturing_pricing.sql` | manufacturing materials/pricing, automatic quote, decision, delete RPC | 007 |
-| `20261113150000_009_order_archive_source_and_security.sql` | order archive columns, source, soft-delete, owner-only quote generation | 008 |
-| `20261113160000_010_pricing_security_and_public_estimate.sql` | revoke public pricing access, safe materials view, public estimate RPC | 009 |
-| `20261113170000_011_custom_workflow_and_delivered_deletion.sql` | dimension estimate, client decision history, owner approval, delivered-order deletion | 010 |
-| `20261113180000_012_owner_approval_and_safe_request_deletion.sql` | remove legacy public order-creation RPC, allow owner approval of `sent` quotes, two-phase deletion of eligible unlinked requests | 011 |
-| `20261114224500_013_owner_notifications.sql` | owner notification counters and notification RPC | 012 |
-| `20261122120000_014_product_seo_keywords.sql` | product SEO keyword array | 001 |
-| `20261122123000_015_category_seo_metadata.sql` | category SEO title, description and keyword fields | 001 |
+| Timestamp order | File | Purpose |
+|---:|---|---|
+| 1 | `20261112190919_001_lunders_catalog_and_auth.sql` | Core profiles, catalog and storage |
+| 2 | `20261112193000_002_owner_access_and_profile_hardening.sql` | Owner authorization and profile hardening |
+| 3 | `20261112200000_003_catalog_variants_and_media_limits.sql` | Product options, variants and media limits |
+| 4 | `20261112210000_004_algeria_geography.sql` | Wilaya and commune reference data |
+| 5 | `20261112211000_005_delivery_and_orders.sql` | Delivery, orders and checkout functions |
+| 6 | `20261112220000_006_custom_requests_and_quotes.sql` | Custom requests, files and quotes |
+| 7 | `20261112230000_007_costs_settings_and_audit.sql` | Costs, settings and audit log |
+| 8 | `20261113140000_008_auto_manufacturing_pricing.sql` | Manufacturing pricing and quote workflow |
+| 9 | `20261113150000_009_order_archive_source_and_security.sql` | Order archive/source fields and security |
+| 10 | `20261113160000_010_pricing_security_and_public_estimate.sql` | Pricing access hardening and public estimates |
+| 11 | `20261113170000_011_custom_workflow_and_delivered_deletion.sql` | Custom workflow, approvals and delivered-order deletion |
+| 12 | `20261113180000_012_owner_approval_and_safe_request_deletion.sql` | Owner approval and guarded request deletion |
+| 13 | `20261114224500_013_owner_notifications.sql` | Owner notifications |
+| 14 | `20261122120000_014_product_seo_keywords.sql` | Product SEO keywords |
+| 15 | `20261122120000_016_flexible_custom_requests.sql` | Flexible custom-request intake |
+| 16 | `20261122123000_015_category_seo_metadata.sql` | Category SEO metadata |
+| 17 | `20261122130000_017_order_level_manufacturing_pricing.sql` | Order-level manufacturing pricing and public quote breakdown |
+| 18 | `20261126150000_018_product_variant_images.sql` | Optional image per product variant |
+| 19 | `20261127143000_019_order_variant_option_snapshot.sql` | Snapshot selected variant options on order items |
+| 20 | `20261127160000_020_product_option_value_images.sql` | Optional image per option value |
 
-Every file is safe to re-run: tables use `IF NOT EXISTS`, policies are dropped before creation, and
-seed rows use `ON CONFLICT DO NOTHING`.
+Do not treat these migrations as universally safe to re-run. Some statements are
+idempotent, but functions, triggers, data backfills and permission changes must be
+reviewed in context. Validate the complete chain against a disposable database before
+using it with customer or production data.
 
-The SEO build reads published products, product images, active categories and public SEO settings through the Supabase anon key. Set `VITE_SITE_URL` (or the public `seo_site_url` setting) so the build can emit canonical URLs, per-product/per-category HTML metadata, Product/CollectionPage JSON-LD, `sitemap.xml` and `robots.txt`. If the URL is missing, the app build still succeeds but the static SEO output is skipped. Apply migrations 014 and 015 before using product/category SEO keyword fields in the admin.
+Migration idempotency is statement-specific. `IF NOT EXISTS` and conflict handling do not make an entire migration safe to replay; review function, trigger, backfill and privilege statements before re-running any file.
+
+The SEO build reads published products, product images, active categories and public SEO settings through the Supabase anon key. Set `VITE_SITE_URL` (or the public `seo_site_url` setting) so the build can emit canonical URLs, per-product/per-category HTML metadata, Product/CollectionPage JSON-LD, `sitemap.xml` and `robots.txt`. If the URL is missing, the app build still succeeds but the static SEO output is skipped. Apply migrations 014 and 015 (in timestamp order shown above) before using product/category SEO keyword fields in the admin.
 
 The geography dataset is the 69-wilaya structure of Loi 26-06 (4 April 2026), sourced from
 `el-amin-dev/algeria-wilayas-communes` and retrieved 12 Nov 2026. Wilayas 59–69 are legally in force
@@ -232,15 +263,17 @@ Open `/admin` manually — it is not linked from the storefront and must not be 
 
 ## Workflow fabrication sur mesure (011)
 
-1. Le client saisit le projet, les trois dimensions en millimètres, la quantité, la matière, la
-   couleur et les options. Il ne saisit jamais de poids ni d'heures d'impression.
+1. Le client décrit son projet et peut ajouter les dimensions en millimètres, la quantité, la
+   matière, la couleur et les options. Les dimensions et la matière sont facultatives pour une
+   demande manuelle. Il ne saisit jamais de poids ni d'heures d'impression.
 2. `estimate_manufacturing_dimensions` calcule un poids et un temps à partir du volume de la boîte
    englobante, du taux de remplissage (`effective_volume_percent`), de la densité de la matière
    (`density_g_cm3`) et de la vitesse d'impression (`print_speed_g_per_hour`). Le résultat est
    explicitement présenté comme une estimation non vérifiée, pas comme un devis ferme.
-3. Le client accepte l'estimation. Le formulaire de coordonnées et de livraison apparaît alors
-   seulement, et `create_custom_request` n'enregistre la demande qu'avec cette acceptation, les
-   coordonnées et la livraison complètes. Aucune commande n'est créée à cette étape.
+3. Si une estimation automatique est disponible, le client doit l'accepter avant de
+   poursuivre. S'il laisse les dimensions vides ou qu'aucune estimation n'est disponible, le
+   formulaire permet tout de même d'envoyer une demande manuelle avec ses coordonnées et sa
+   livraison. Aucune commande n'est créée à cette étape.
 4. Le propriétaire voit la demande complète, les fichiers, les dimensions, l'estimation et son
    détail interne, l'acceptation éventuelle du client et l'historique des devis. Il peut créer un
    devis depuis l'estimation, saisir un devis manuel ou un devis technique, puis l'envoyer.
@@ -262,14 +295,15 @@ pas supprimables par cette action.
 
 ## Known open items
 
-- **Database validation is pending.** Migrations have not been applied to a local/test or production
-  database in this task. The sandbox has no local PostgreSQL/Supabase CLI environment; migration 012
-  therefore still needs isolated-database validation before deployment. Do not apply it to production
-  without separate approval.
+- **Database validation and migration reconciliation are pending.** Production records two
+  migration versions absent from this repository and does not contain several later repository
+  columns (product SEO keywords, category SEO metadata, variant images and option-value images).
+  Some later workflow objects do exist, so this is partial schema drift, not a clean baseline.
+  Do not apply migrations or deploy until the exact history is reconciled and the full chain passes
+  on an isolated database.
 - **Automated coverage is partial.** `npm test` runs the Vitest unit suite; it does not exercise RLS,
   Postgres RPC transactions, Storage permissions, end-to-end customer flows or mobile layouts.
-- **Admin notifications remain incomplete.** The dashboard now uses real counters through an owner-only
-  RPC, but there is no durable read/unread notification center or event-driven notification delivery.
+- **Notification delivery needs end-to-end verification.** The repository contains an owner notification provider and notification center; verify persistence, realtime/fallback refresh, read state, and preference handling against an isolated Supabase project.
 - **Storage deletion race is not fully closed.** The final RPC checks that the known request objects are
   absent, but anonymous bucket inserts are not serialized against that check. Do not deploy request
   deletion until uploads are bound to server-issued sessions or an equivalent reconciliation/cleanup
@@ -278,9 +312,14 @@ pas supprimables par cette action.
   there is no distinct manufacturing-in-progress status, so the dashboard does not invent one.
 - **No transactional email or SMS.** No order confirmation, quote notification or password reset is
   sent; guests must keep their tracking link. Password recovery is therefore hidden.
-- **Uploads:** the private custom-request bucket accepts anonymous inserts (guests must upload without
-  an account). Storage caps individual size and declared MIME, but there is no quota/rate limit or
-  server-side geometry parser; abandoned/partially uploaded files require cleanup.
+- **Uploads:** the private custom-request bucket accepts unrestricted anonymous inserts by bucket
+  ID alone. The UI's 10-file limit and client-side content sniffing can be bypassed by direct
+  Storage API calls. The live bucket contains 10 unreferenced objects older than seven days; they
+  were not deleted. Server-verifiable upload sessions, abuse controls and a cleanup grace period
+  are required before launch.
+- The public storefront still inherits LUNDER name, copy and printer branding in several
+  components and SEO templates; replace these with the client's approved Printessa brand assets
+  and business content before delivery.
 - No license file is present; redistribution rights are unresolved.
 
 ## Migrations de fabrication sur mesure (008–012)

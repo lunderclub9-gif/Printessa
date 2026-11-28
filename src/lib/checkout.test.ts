@@ -1,10 +1,25 @@
 import { describe, expect, it } from 'vitest'
 import {
   DELIVERY_METHOD_LABELS,
+  buildOrderNote,
   normalizeAlgerianPhone,
   orderErrorMessage,
   orderStatusLabel,
 } from './checkout'
+
+describe('buildOrderNote', () => {
+  it('keeps customer instructions and appends selected colors', () => {
+    expect(buildOrderNote('Appeler avant livraison', [
+      { name: 'Vase', selectedColor: 'Rouge' },
+      { name: 'Support', selectedColor: null },
+      { name: 'Lampe', selectedColor: 'Noir' },
+    ])).toBe('Appeler avant livraison\n\nCouleurs sélectionnées :\n- Vase : Rouge\n- Lampe : Noir')
+  })
+
+  it('returns null when there are no customer notes or color choices', () => {
+    expect(buildOrderNote('   ', [{ name: 'Objet', selectedColor: null }])).toBeNull()
+  })
+})
 
 describe('normalizeAlgerianPhone', () => {
   it('accepte les numéros mobiles nationaux avec séparateurs', () => {

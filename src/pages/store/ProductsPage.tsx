@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
 import { AlertTriangle, Package, RefreshCw, Search } from 'lucide-react'
 import { supabase, type Product, type Category } from '@/lib/supabase'
@@ -10,6 +10,8 @@ import { setPageSeo } from '@/lib/seo'
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([])
   const [categories, setCategories] = useState<Category[]>([])
+  const [categoriesFailed, setCategoriesFailed] = useState(false)
+  const [categoriesRetry, setCategoriesRetry] = useState(0)
   const [loading, setLoading] = useState(true)
   const [failed, setFailed] = useState(false)
   const [searchParams, setSearchParams] = useSearchParams()
@@ -17,22 +19,34 @@ export default function ProductsPage() {
   // partageable et gère correctement le bouton Précédent du navigateur.
   const [search, setSearch] = useState(() => searchParams.get('q') ?? '')
   const [activeCategory, setActiveCategory] = useState<string>('')
+  const requestSequence = useRef(0)
 
   useEffect(() => {
-    (async () => {
-      const { data: cats, error } = await supabase
-        .from('categories')
-        .select('*')
-        .eq('is_active', true)
-        .order('name')
-      if (error) {
-        console.error('[LUNDER] chargement des catégories impossible')
-        setCategories([])
-        return
+    let active = true
+    const loadCategories = async () => {
+      try {
+        const { data: cats, error } = await supabase
+          .from('categories')
+          .select('*')
+          .eq('is_active', true)
+          .order('name')
+        if (error) throw error
+        if (active) {
+          setCategories((cats as Category[]) ?? [])
+          setCategoriesFailed(false)
+        }
+      } catch {
+        if (active) {
+          setCategories([])
+          setCategoriesFailed(true)
+        }
       }
-      setCategories((cats as Category[]) ?? [])
-    })()
-  }, [])
+    }
+    void loadCategories()
+    return () => {
+      active = false
+    }
+  }, [categoriesRetry])
 
   useEffect(() => {
     setPageSeo({ title: 'Boutique | LUNDER’S 3D STUDIO', description: 'Découvrez notre catalogue de produits imprimés en 3D et de créations sur mesure en Algérie.', canonicalUrl: `${window.location.origin}/boutique/produits` })
@@ -44,40 +58,40 @@ export default function ProductsPage() {
   }, [urlQuery])
 
   const loadProducts = useCallback(async () => {
+    const requestId = ++requestSequence.current
     setLoading(true)
     setFailed(false)
-    let query = supabase
-      .from('products')
-      .select('*, category:categories(*), product_images(*)')
-      .eq('status', 'published')
-      .order('created_at', { ascending: false })
+    try {
+      let query = supabase
+        .from('products')
+        .select('*, category:categories(*), product_images(*), product_options(id, values:product_option_values(is_active)), product_variants(stock_quantity,made_to_order,is_active)')
+        .eq('status', 'published')
+        .order('created_at', { ascending: false })
 
-    if (activeCategory) {
-      query = query.eq('category_id', activeCategory)
-    }
-    // La saisie est nettoyée : sans cela, une virgule ou une parenthèse
-    // injecterait de la syntaxe dans le filtre PostgREST.
-    const term = sanitizeSearchTerm(search)
-    if (term) {
-      query = query.or(`name.ilike.%${term}%,description.ilike.%${term}%`)
-    }
+      if (activeCategory) query = query.eq('category_id', activeCategory)
+      // La saisie est nettoyée pour protéger la syntaxe du filtre PostgREST.
+      const term = sanitizeSearchTerm(search)
+      if (term) query = query.or(`name.ilike.%${term}%,description.ilike.%${term}%`)
 
-    const { data, error } = await query
-    if (error) {
-      console.error('[LUNDER] chargement des produits impossible', error.code ?? 'erreur inconnue')
+      const { data, error } = await query
+      if (requestId !== requestSequence.current) return
+      if (error) throw error
+      setProducts((data as Product[]) ?? [])
+      setFailed(false)
+    } catch {
+      if (requestId !== requestSequence.current) return
       setProducts([])
       setFailed(true)
-      setLoading(false)
-      return
+    } finally {
+      if (requestId === requestSequence.current) setLoading(false)
     }
-
-    setProducts((data as Product[]) ?? [])
-    setFailed(false)
-    setLoading(false)
   }, [activeCategory, search])
 
   useEffect(() => {
     void loadProducts()
+    return () => {
+      requestSequence.current += 1
+    }
   }, [loadProducts])
 
   const primaryImage = (p: Product) => p.product_images?.find((img) => img.is_primary)?.image_url ?? p.product_images?.[0]?.image_url
@@ -95,6 +109,15 @@ export default function ProductsPage() {
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
       <h1 className="mb-6 text-3xl font-bold text-offwhite">Boutique</h1>
+
+      {categoriesFailed && (
+        <div role="alert" className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-brand-red/30 bg-brand-red/10 px-4 py-3 text-sm text-brand-red-light">
+          <span>Les catégories ne sont pas disponibles pour le moment. Le catalogue reste consultable.</span>
+          <button type="button" onClick={() => setCategoriesRetry((value) => value + 1)} className="btn-secondary">
+            Réessayer
+          </button>
+        </div>
+      )}
 
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="relative max-w-sm flex-1">

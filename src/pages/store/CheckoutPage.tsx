@@ -4,8 +4,10 @@ import { AlertCircle, Loader2, ShoppingBag, Truck } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useCart } from '@/lib/cart'
 import { formatDzd } from '@/lib/format'
+import { MAX_ORDER_LINES } from '@/lib/cart-storage'
 import {
   DELIVERY_METHOD_LABELS,
+  buildOrderNote,
   normalizeAlgerianPhone,
   orderErrorMessage,
   type CreatedOrder,
@@ -22,8 +24,14 @@ export default function CheckoutPage() {
   const { items, subtotal, clear } = useCart()
 
   const [wilayas, setWilayas] = useState<Wilaya[]>([])
+  const [wilayasLoading, setWilayasLoading] = useState(true)
+  const [wilayasError, setWilayasError] = useState<string | null>(null)
+  const [wilayasRetry, setWilayasRetry] = useState(0)
   const [communes, setCommunes] = useState<Commune[]>([])
   const [pickupPoints, setPickupPoints] = useState<PickupPoint[]>([])
+  const [destinationLoading, setDestinationLoading] = useState(false)
+  const [destinationError, setDestinationError] = useState<string | null>(null)
+  const [destinationRetry, setDestinationRetry] = useState(0)
 
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
@@ -37,7 +45,9 @@ export default function CheckoutPage() {
   const [terms, setTerms] = useState(false)
 
   const [quote, setQuote] = useState<DeliveryQuote | null>(null)
+  const [quoteLoading, setQuoteLoading] = useState(false)
   const [quoteError, setQuoteError] = useState<string | null>(null)
+  const [quoteRetry, setQuoteRetry] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
@@ -50,52 +60,94 @@ export default function CheckoutPage() {
   )
 
   useEffect(() => {
-    supabase
-      .from('wilayas')
-      .select('code, name_fr')
-      .eq('is_active', true)
-      .order('code')
-      .then(({ data }) => setWilayas((data as Wilaya[]) ?? []))
-  }, [])
+    let cancelled = false
+    const loadWilayas = async () => {
+      setWilayasLoading(true)
+      setWilayasError(null)
+      try {
+        const { data, error: queryError } = await supabase
+          .from('wilayas')
+          .select('code, name_fr')
+          .eq('is_active', true)
+          .order('code')
+        if (queryError) throw queryError
+        if (!cancelled) setWilayas((data as Wilaya[]) ?? [])
+      } catch {
+        if (!cancelled) {
+          setWilayas([])
+          setWilayasError('Impossible de charger les wilayas. Vérifiez votre connexion puis réessayez.')
+        }
+      } finally {
+        if (!cancelled) setWilayasLoading(false)
+      }
+    }
+    void loadWilayas()
+    return () => {
+      cancelled = true
+    }
+  }, [wilayasRetry])
 
   useEffect(() => {
     setCommunes([])
     setCommuneId('')
     setPickupPoints([])
     setPickupId('')
-    if (!wilayaCode) return
+    setDestinationError(null)
+    if (!wilayaCode) {
+      setDestinationLoading(false)
+      return
+    }
 
-    supabase
-      .from('communes')
-      .select('id, name_fr')
-      .eq('wilaya_code', Number(wilayaCode))
-      .eq('is_active', true)
-      .order('name_fr')
-      .then(({ data }) => setCommunes((data as Commune[]) ?? []))
-
-    supabase
-      .from('pickup_points')
-      .select('id, name, address')
-      .eq('wilaya_code', Number(wilayaCode))
-      .eq('is_active', true)
-      .order('name')
-      .then(({ data }) => setPickupPoints((data as PickupPoint[]) ?? []))
-  }, [wilayaCode])
+    let cancelled = false
+    const loadDestination = async () => {
+      setDestinationLoading(true)
+      try {
+        const [communesResult, pickupResult] = await Promise.all([
+          supabase.from('communes').select('id, name_fr')
+            .eq('wilaya_code', Number(wilayaCode)).eq('is_active', true).order('name_fr'),
+          supabase.from('pickup_points').select('id, name, address')
+            .eq('wilaya_code', Number(wilayaCode)).eq('is_active', true).order('name'),
+        ])
+        if (cancelled) return
+        setCommunes(communesResult.error ? [] : (communesResult.data as Commune[]) ?? [])
+        setPickupPoints(pickupResult.error ? [] : (pickupResult.data as PickupPoint[]) ?? [])
+        if (communesResult.error) {
+          setDestinationError('Impossible de charger les communes de cette wilaya. Réessayez.')
+        } else if (pickupResult.error) {
+          setDestinationError('Impossible de charger les points relais de cette wilaya. Réessayez.')
+        }
+      } catch {
+        if (!cancelled) {
+          setDestinationError('Connexion interrompue pendant le chargement de la destination. Réessayez.')
+        }
+      } finally {
+        if (!cancelled) setDestinationLoading(false)
+      }
+    }
+    void loadDestination()
+    return () => {
+      cancelled = true
+    }
+  }, [wilayaCode, destinationRetry])
 
   // Devis de livraison : la seule source de prix autorisée.
   useEffect(() => {
     setQuote(null)
     setQuoteError(null)
-    if (!wilayaCode || !communeId || items.length === 0) return
+    if (!wilayaCode || !communeId || items.length === 0) {
+      setQuoteLoading(false)
+      return
+    }
 
     let cancelled = false
-    supabase
-      .rpc('quote_delivery', {
-        p_wilaya_code: Number(wilayaCode),
-        p_commune_id: communeId,
-        p_method: method,
-      })
-      .then(({ data, error: rpcError }) => {
+    const loadQuote = async () => {
+      setQuoteLoading(true)
+      try {
+        const { data, error: rpcError } = await supabase.rpc('quote_delivery', {
+          p_wilaya_code: Number(wilayaCode),
+          p_commune_id: communeId,
+          p_method: method,
+        })
         if (cancelled) return
         const row = Array.isArray(data) ? (data[0] as DeliveryQuote | undefined) : undefined
         if (rpcError || !row) {
@@ -108,12 +160,19 @@ export default function CheckoutPage() {
           return
         }
         setQuote(row)
-      })
-
+      } catch {
+        if (!cancelled) {
+          setQuoteError("Impossible de calculer les frais de livraison. Vérifiez votre connexion puis réessayez.")
+        }
+      } finally {
+        if (!cancelled) setQuoteLoading(false)
+      }
+    }
+    void loadQuote()
     return () => {
       cancelled = true
     }
-  }, [wilayaCode, communeId, method, items.length])
+  }, [wilayaCode, communeId, method, items.length, quoteRetry])
 
   const total = useMemo(() => subtotal + (quote?.price_dzd ?? 0), [subtotal, quote])
 
@@ -132,10 +191,20 @@ export default function CheckoutPage() {
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
     setError(null)
+    if (items.length > MAX_ORDER_LINES) {
+      setError(`Votre panier dépasse la limite de ${MAX_ORDER_LINES} références. Revenez au panier et retirez des articles avant de commander.`)
+      return
+    }
 
     const normalizedPhone = normalizeAlgerianPhone(phone)
     if (!normalizedPhone) {
       setError('Numéro de téléphone algérien invalide (ex. 0550 12 34 56).')
+      return
+    }
+    const requiredDestinationUnavailable =
+      destinationError?.includes('communes') || (method === 'stopdesk' && Boolean(destinationError))
+    if (wilayasLoading || destinationLoading || quoteLoading || wilayasError || requiredDestinationUnavailable) {
+      setError('Attendez le chargement des informations de livraison ou utilisez Réessayer.')
       return
     }
     if (!wilayaCode || !communeId) {
@@ -159,41 +228,53 @@ export default function CheckoutPage() {
       return
     }
 
+    const orderNote = buildOrderNote(note, items)
+
     setSubmitting(true)
-    const { data, error: rpcError } = await supabase.rpc('create_guest_order', {
-      p_payload: {
-        idempotency_key: idempotencyKey.current,
-        customer_name: name.trim(),
-        phone: normalizedPhone,
-        email: email.trim() || null,
-        wilaya_code: Number(wilayaCode),
-        commune_id: communeId,
-        delivery_method: method,
-        address: method === 'domicile' ? address.trim() : null,
-        pickup_point_id: method === 'stopdesk' ? pickupId : null,
-        note: note.trim() || null,
-        items: items.map((line) => ({
-          product_id: line.productId,
-          variant_id: line.variantId,
-          quantity: line.quantity,
-        })),
-      },
-    })
+    try {
+      const { data, error: rpcError } = await supabase.rpc('create_guest_order', {
+        p_payload: {
+          idempotency_key: idempotencyKey.current,
+          customer_name: name.trim(),
+          phone: normalizedPhone,
+          email: email.trim() || null,
+          wilaya_code: Number(wilayaCode),
+          commune_id: communeId,
+          delivery_method: method,
+          address: method === 'domicile' ? address.trim() : null,
+          pickup_point_id: method === 'stopdesk' ? pickupId : null,
+          note: orderNote,
+          items: items.map((line) => ({
+            product_id: line.productId,
+            variant_id: line.variantId,
+            quantity: line.quantity,
+          })),
+        },
+      })
 
-    if (rpcError) {
-      setSubmitting(false)
-      setError(
-        orderErrorMessage(
-          rpcError.message,
-          "La commande n'a pas pu être enregistrée. Vérifiez vos informations et réessayez."
+      if (rpcError) {
+        setError(
+          orderErrorMessage(
+            rpcError.message,
+            "La commande n'a pas pu être enregistrée. Vérifiez vos informations et réessayez."
+          )
         )
-      )
-      return
-    }
+        return
+      }
 
-    const created = data as CreatedOrder
-    clear()
-    navigate(`/boutique/commande/confirmation?token=${created.tracking_token}`)
+      const created = data as CreatedOrder | null
+      if (!created?.tracking_token) {
+        setError("La réponse du serveur est incomplète. Votre panier a été conservé ; vérifiez le suivi avant de réessayer.")
+        return
+      }
+
+      clear()
+      navigate(`/boutique/commande/confirmation?token=${encodeURIComponent(created.tracking_token)}`)
+    } catch {
+      setError("Connexion interrompue pendant l'enregistrement. Votre panier a été conservé ; vérifiez le suivi avant de réessayer.")
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (
@@ -203,6 +284,18 @@ export default function CheckoutPage() {
         Paiement à la livraison. Aucune carte bancaire n'est demandée.
       </p>
 
+      {wilayasError && (
+        <div role="alert" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-brand-red/30 bg-brand-red/10 px-4 py-3 text-sm text-brand-red-light">
+          <span>{wilayasError}</span>
+          <button type="button" onClick={() => setWilayasRetry((value) => value + 1)} className="btn-secondary">Réessayer</button>
+        </div>
+      )}
+      {destinationError && (
+        <div role="alert" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-brand-red/30 bg-brand-red/10 px-4 py-3 text-sm text-brand-red-light">
+          <span>{destinationError}</span>
+          <button type="button" onClick={() => setDestinationRetry((value) => value + 1)} className="btn-secondary">Réessayer</button>
+        </div>
+      )}
       {error && (
         <div className="mb-6 flex items-start gap-2 rounded-lg border border-brand-red/30 bg-brand-red/10 px-4 py-3 text-sm text-brand-red-light">
           <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
@@ -262,8 +355,9 @@ export default function CheckoutPage() {
                   value={wilayaCode}
                   onChange={(event) => setWilayaCode(event.target.value)}
                   className="input-field"
+                  disabled={wilayasLoading || Boolean(wilayasError)}
                 >
-                  <option value="">Sélectionner...</option>
+                  <option value="">{wilayasLoading ? 'Chargement des wilayas…' : 'Sélectionner...'}</option>
                   {wilayas.map((wilaya) => (
                     <option key={wilaya.code} value={wilaya.code}>
                       {String(wilaya.code).padStart(2, '0')} — {wilaya.name_fr}
@@ -278,9 +372,9 @@ export default function CheckoutPage() {
                   value={communeId}
                   onChange={(event) => setCommuneId(event.target.value)}
                   className="input-field"
-                  disabled={!wilayaCode}
+                  disabled={!wilayaCode || destinationLoading}
                 >
-                  <option value="">Sélectionner...</option>
+                  <option value="">{destinationLoading ? 'Chargement des communes…' : 'Sélectionner...'}</option>
                   {communes.map((commune) => (
                     <option key={commune.id} value={commune.id}>
                       {commune.name_fr}
@@ -331,10 +425,14 @@ export default function CheckoutPage() {
                   value={pickupId}
                   onChange={(event) => setPickupId(event.target.value)}
                   className="input-field"
-                  disabled={pickupPoints.length === 0}
+                  disabled={destinationLoading || pickupPoints.length === 0}
                 >
                   <option value="">
-                    {pickupPoints.length === 0 ? 'Aucun point relais dans cette wilaya' : 'Sélectionner...'}
+                    {destinationLoading
+                      ? 'Chargement des points relais…'
+                      : pickupPoints.length === 0
+                        ? 'Aucun point relais dans cette wilaya'
+                        : 'Sélectionner...'}
                   </option>
                   {pickupPoints.map((point) => (
                     <option key={point.id} value={point.id}>
@@ -347,8 +445,15 @@ export default function CheckoutPage() {
             )}
 
             <div className="mt-4 rounded-lg border border-charcoal-400/15 bg-charcoal-900/60 px-4 py-3 text-sm">
-              {quoteError ? (
-                <p className="text-brand-red-light">{quoteError}</p>
+              {quoteLoading ? (
+                <p className="text-charcoal-400">Calcul des frais de livraison…</p>
+              ) : quoteError ? (
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-brand-red-light">{quoteError}</p>
+                  <button type="button" onClick={() => setQuoteRetry((value) => value + 1)} className="btn-secondary">
+                    Réessayer
+                  </button>
+                </div>
               ) : quote ? (
                 <div className="flex items-center gap-2 text-charcoal-200">
                   <Truck className="h-4 w-4 text-brand-red" />

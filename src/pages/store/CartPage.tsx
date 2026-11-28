@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import { ArrowLeft, Minus, Plus, ShoppingCart, Trash2 } from 'lucide-react'
 import { useCart } from '@/lib/cart'
 import { formatDzd } from '@/lib/format'
+import { MAX_ORDER_LINES } from '@/lib/cart-storage'
 
 export default function CartPage() {
   const { items, subtotal, setQuantity, remove } = useCart()
@@ -20,6 +21,13 @@ export default function CartPage() {
         </div>
       ) : (
         <div className="space-y-6">
+          {items.length > MAX_ORDER_LINES && (
+            <div role="alert" className="admin-feedback admin-feedback-error">
+              Votre panier contient {items.length} références différentes. Une commande ne peut
+              contenir que {MAX_ORDER_LINES} références. Retirez-en {items.length - MAX_ORDER_LINES}
+              avant de continuer.
+            </div>
+          )}
           <div className="space-y-3">
             {items.map((line) => (
               <div key={line.key} className="card flex gap-4 p-4">
@@ -43,6 +51,9 @@ export default function CartPage() {
                   </Link>
                   {line.variantLabel && (
                     <p className="text-xs text-charcoal-400">{line.variantLabel}</p>
+                  )}
+                  {line.selectedColor && (
+                    <p className="text-xs text-charcoal-400">Couleur : {line.selectedColor}</p>
                   )}
                   <p className="mt-1 text-sm text-charcoal-300">{formatDzd(line.unitPriceDzd)}</p>
 
@@ -103,9 +114,15 @@ export default function CartPage() {
               <ArrowLeft className="h-4 w-4" />
               Continuer mes achats
             </Link>
-            <Link to="/boutique/commande" className="btn-primary">
-              Passer la commande
-            </Link>
+            {items.length > MAX_ORDER_LINES ? (
+              <button type="button" disabled className="btn-primary opacity-50">
+                Réduisez votre panier pour commander
+              </button>
+            ) : (
+              <Link to="/boutique/commande" className="btn-primary">
+                Passer la commande
+              </Link>
+            )}
           </div>
         </div>
       )}

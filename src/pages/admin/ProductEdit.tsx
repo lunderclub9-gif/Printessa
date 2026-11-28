@@ -11,8 +11,40 @@ import {
   type ProductVariant,
 } from '@/lib/supabase'
 import { slugify, generateSku } from '@/lib/format'
-import { validateImage, validateModel } from '@/lib/media'
+import { storageObjectPath, validateImage, validateModel } from '@/lib/media'
+import { buildVariantCombinations, getVariantIdsUsingOptionValues, variantCombinationKey } from '@/lib/product-variants'
 import posthog, { isPostHogEnabled } from '@/lib/posthog'
+
+type ProductImageCleanupStatus = 'removed' | 'still-referenced' | 'outside-product' | 'reference-check-failed' | 'storage-delete-failed'
+
+async function cleanupUnreferencedProductImage(
+  productId: string,
+  imageUrl: string
+): Promise<ProductImageCleanupStatus> {
+  const imagePath = storageObjectPath(imageUrl, 'product-images')
+  if (!imagePath?.startsWith(`${productId}/`)) return 'outside-product'
+
+  try {
+    const [galleryResult, variantResult, optionValueResult] = await Promise.all([
+      supabase.from('product_images').select('id').eq('image_url', imageUrl).limit(1),
+      supabase.from('product_variants').select('id').eq('image_url', imageUrl).limit(1),
+      supabase.from('product_option_values').select('id').eq('image_url', imageUrl).limit(1),
+    ])
+    const missingColumn = (error: { message: string } | null) =>
+      Boolean(error && /image_url.*does not exist|could not find.*image_url.*column/i.test(error.message))
+    const variantLookupFailed = Boolean(variantResult.error && !missingColumn(variantResult.error))
+    const optionLookupFailed = Boolean(optionValueResult.error && !missingColumn(optionValueResult.error))
+    if (galleryResult.error || variantLookupFailed || optionLookupFailed) return 'reference-check-failed'
+    if (galleryResult.data?.length || variantResult.data?.length || optionValueResult.data?.length) {
+      return 'still-referenced'
+    }
+
+    const { error: storageError } = await supabase.storage.from('product-images').remove([imagePath])
+    return storageError ? 'storage-delete-failed' : 'removed'
+  } catch {
+    return 'reference-check-failed'
+  }
+}
 
 export default function AdminProductEdit() {
   const confirmAction = useAdminConfirm()
@@ -21,6 +53,7 @@ export default function AdminProductEdit() {
   const navigate = useNavigate()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const modelInputRef = useRef<HTMLInputElement>(null)
+  const productLoadSequence = useRef(0)
 
   const [categories, setCategories] = useState<Category[]>([])
   const [loading, setLoading] = useState(isNew ? false : true)
@@ -32,6 +65,7 @@ export default function AdminProductEdit() {
 
   const [options, setOptions] = useState<ProductOption[]>([])
   const [variants, setVariants] = useState<ProductVariant[]>([])
+  const [variantsLoadFailed, setVariantsLoadFailed] = useState(false)
   const [newOptionName, setNewOptionName] = useState('')
   const [bulkValueDraft, setBulkValueDraft] = useState<Record<string, string>>({})
   const [selectedShapeId, setSelectedShapeId] = useState('')
@@ -40,6 +74,7 @@ export default function AdminProductEdit() {
   const [variantPrice, setVariantPrice] = useState('')
   const [variantStock, setVariantStock] = useState('0')
   const [creatingVariants, setCreatingVariants] = useState(false)
+  const [creatingDefaultOptions, setCreatingDefaultOptions] = useState(false)
 
   const [form, setForm] = useState({
     name: '',
@@ -65,40 +100,82 @@ export default function AdminProductEdit() {
   useEffect(() => {
     loadCategories()
     if (!isNew && id) loadProduct(id)
-  }, [id])
+    return () => {
+      productLoadSequence.current += 1
+    }
+  }, [id, isNew])
 
   const loadCategories = async () => {
-    const { data } = await supabase.from('categories').select('*').eq('is_active', true).order('name')
-    setCategories((data as Category[]) ?? [])
+    try {
+      const { data, error: queryError } = await supabase.from('categories').select('*').eq('is_active', true).order('name')
+      if (queryError) throw queryError
+      setCategories((data as Category[]) ?? [])
+    } catch {
+      setError('Impossible de charger les catégories. Vérifiez la connexion puis réessayez.')
+    }
   }
 
-  const loadOptions = async (productId: string) => {
-    const { data } = await supabase
-      .from('product_options')
-      .select('*, values:product_option_values(*)')
-      .eq('product_id', productId)
-      .order('sort_order')
-    const parsed = ((data as ProductOption[]) ?? []).map((option) => ({
-      ...option,
-      values: [...(option.values ?? [])].sort(
-        (a, b) => a.sort_order - b.sort_order || a.value.localeCompare(b.value)
-      ),
-    }))
-    setOptions(parsed)
+  const loadOptions = async (productId: string, requestId = productLoadSequence.current) => {
+    try {
+      const { data, error: queryError } = await supabase
+        .from('product_options')
+        .select('*, values:product_option_values(*)')
+        .eq('product_id', productId)
+        .order('sort_order')
+      if (queryError) throw queryError
+      if (requestId !== productLoadSequence.current) return
+      const parsed = ((data as ProductOption[]) ?? []).map((option) => ({
+        ...option,
+        values: [...(option.values ?? [])].sort(
+          (a, b) => a.sort_order - b.sort_order || a.value.localeCompare(b.value)
+        ),
+      }))
+      setOptions(parsed)
+    } catch {
+      if (requestId === productLoadSequence.current) {
+        setError('Impossible de charger les options du produit. Vérifiez la connexion puis réessayez.')
+      }
+    }
   }
 
-  const loadVariants = async (productId: string) => {
-    const { data } = await supabase
-      .from('product_variants')
-      .select('*, values:product_variant_values(option_value_id)')
-      .eq('product_id', productId)
-      .order('created_at')
-    setVariants((data as ProductVariant[]) ?? [])
+  const loadVariants = async (productId: string, requestId = productLoadSequence.current) => {
+    try {
+      const { data, error: queryError } = await supabase
+        .from('product_variants')
+        .select('*, values:product_variant_values(option_value_id)')
+        .eq('product_id', productId)
+        .order('created_at')
+      if (queryError) throw queryError
+      if (requestId !== productLoadSequence.current) return
+      setVariants((data as ProductVariant[]) ?? [])
+      setVariantsLoadFailed(false)
+      setError((current) =>
+        current === 'Impossible de charger les variantes du produit. Rechargez-les avant de modifier les options.'
+          ? null
+          : current
+      )
+    } catch {
+      if (requestId === productLoadSequence.current) {
+        setVariantsLoadFailed(true)
+        setError('Impossible de charger les variantes du produit. Rechargez-les avant de modifier les options.')
+      }
+    }
   }
 
   const loadProduct = async (productId: string) => {
-    const { data } = await supabase.from('products').select('*').eq('id', productId).maybeSingle()
-    if (data) {
+    const requestId = ++productLoadSequence.current
+    setLoading(true)
+    setError(null)
+    try {
+      const { data, error: productError } = await supabase
+        .from('products')
+        .select('*')
+        .eq('id', productId)
+        .maybeSingle()
+      if (productError) throw productError
+      if (!data) throw new Error('Produit introuvable ou accès refusé.')
+      if (requestId !== productLoadSequence.current) return
+
       const p = data as Product
       setForm({
         name: p.name,
@@ -121,15 +198,23 @@ export default function AdminProductEdit() {
         seo_keywords: ((p as Product & { seo_keywords?: string[] }).seo_keywords ?? []).join(', '),
       })
       setOriginalModelUrl(p.model_url ?? '')
+
+      const { data: imgs, error: imageError } = await supabase
+        .from('product_images')
+        .select('*')
+        .eq('product_id', productId)
+        .order('sort_order')
+      if (imageError) throw imageError
+      if (requestId !== productLoadSequence.current) return
+      setImages((imgs as ProductImage[]) ?? [])
+      await Promise.all([loadOptions(productId, requestId), loadVariants(productId, requestId)])
+    } catch {
+      if (requestId === productLoadSequence.current) {
+        setError('Impossible de charger complètement ce produit. Vérifiez la connexion et vos droits avant toute modification.')
+      }
+    } finally {
+      if (requestId === productLoadSequence.current) setLoading(false)
     }
-    const { data: imgs } = await supabase
-      .from('product_images')
-      .select('*')
-      .eq('product_id', productId)
-      .order('sort_order')
-    setImages((imgs as ProductImage[]) ?? [])
-    await Promise.all([loadOptions(productId), loadVariants(productId)])
-    setLoading(false)
   }
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -195,7 +280,7 @@ export default function AdminProductEdit() {
       if (upErr) throw new Error('Le stockage a refusé le modèle (format ou taille).')
 
       const { data: urlData } = supabase.storage.from('product-models').getPublicUrl(path)
-      const previousPath = form.model_url.split('/product-models/')[1]
+      const previousPath = storageObjectPath(form.model_url, 'product-models')
       setForm((prev) => ({ ...prev, model_url: urlData.publicUrl }))
       if (isPostHogEnabled) posthog.capture('product_model_uploaded', { product_id: id })
 
@@ -218,61 +303,83 @@ export default function AdminProductEdit() {
     if (!id) return
     setError(null)
     const previousPrimary = images.find((image) => image.is_primary)
-    const { error: clearError } = await supabase.from('product_images').update({ is_primary: false }).eq('product_id', id)
-    if (clearError) {
-      setError(`Impossible de modifier la photo principale : ${clearError.message}`)
-      return
-    }
-    const { error: primaryError } = await supabase.from('product_images').update({ is_primary: true }).eq('id', imageId).eq('product_id', id)
-    if (primaryError) {
-      if (previousPrimary) await supabase.from('product_images').update({ is_primary: true }).eq('id', previousPrimary.id).eq('product_id', id)
-      setError(`La photo principale n’a pas été modifiée : ${primaryError.message}`)
-      return
-    }
-    setImages((prev) => prev.map((img) => ({ ...img, is_primary: img.id === imageId })))
-    if (isPostHogEnabled) posthog.capture('product_primary_image_set', { product_id: id, image_id: imageId })
-  }
-
-  const storagePath = (url: string, bucket: 'product-images' | 'product-models') => {
     try {
-      const parsed = new URL(url)
-      const marker = `/${bucket}/`
-      const index = parsed.pathname.indexOf(marker)
-      return index >= 0 ? decodeURIComponent(parsed.pathname.slice(index + marker.length)) : null
-    } catch { return null }
+      const { error: clearError } = await supabase
+        .from('product_images')
+        .update({ is_primary: false })
+        .eq('product_id', id)
+      if (clearError) {
+        setError(`Impossible de modifier la photo principale : ${clearError.message}`)
+        return
+      }
+      const { error: primaryError } = await supabase
+        .from('product_images')
+        .update({ is_primary: true })
+        .eq('id', imageId)
+        .eq('product_id', id)
+      if (primaryError) {
+        const rollback = previousPrimary
+          ? await supabase.from('product_images').update({ is_primary: true }).eq('id', previousPrimary.id).eq('product_id', id)
+          : null
+        setError(
+          rollback?.error
+            ? 'La modification de la photo principale a échoué et la restauration automatique aussi. Rechargez le produit pour vérifier la galerie.'
+            : `La photo principale n’a pas été modifiée : ${primaryError.message}`
+        )
+        return
+      }
+      setImages((prev) => prev.map((img) => ({ ...img, is_primary: img.id === imageId })))
+      if (isPostHogEnabled) posthog.capture('product_primary_image_set', { product_id: id, image_id: imageId })
+    } catch {
+      setError('Connexion interrompue pendant le changement de photo principale. Rechargez la galerie avant de réessayer.')
+    }
   }
 
   const deleteImage = async (imageId: string, imageUrl: string) => {
     if (!id || !(await confirmAction({ title: 'Supprimer cette photo ?', description: 'La photo sera retirée de la galerie du produit.', confirmLabel: 'Supprimer la photo', tone: 'danger' }))) return
+    try {
     const image = images.find((item) => item.id === imageId)
     const { error: deleteError } = await supabase.from('product_images').delete().eq('id', imageId).eq('product_id', id)
     if (deleteError) { setError('Impossible de supprimer cette photo. Réessayez.'); return }
     const remaining = images.filter((item) => item.id !== imageId)
     setImages(remaining)
     if (image?.is_primary && remaining[0]) {
-      const { error: primaryError } = await supabase.from('product_images').update({ is_primary: true }).eq('id', remaining[0].id).eq('product_id', id)
-      if (!primaryError) setImages((current) => current.map((item) => ({ ...item, is_primary: item.id === remaining[0].id })))
-    }
-    const path = storagePath(imageUrl, 'product-images')
-    if (path && path.startsWith(`${id}/`)) {
-      const { data: references, error: referenceError } = await supabase.from('product_images').select('id').eq('image_url', imageUrl).limit(1)
-      if (referenceError) setError('La photo a été retirée du produit, mais la vérification des références du fichier a échoué; le fichier a été conservé par sécurité.')
-      else if (!references?.length) {
-        const { error: storageError } = await supabase.storage.from('product-images').remove([path])
-        if (storageError) setError('La photo a été retirée du produit, mais son fichier reste dans le stockage et devra être nettoyé.')
+      try {
+        const { error: primaryError } = await supabase
+          .from('product_images')
+          .update({ is_primary: true })
+          .eq('id', remaining[0].id)
+          .eq('product_id', id)
+        if (primaryError) {
+          setError('La photo a été supprimée, mais la nouvelle photo principale n’a pas pu être définie. Choisissez-en une manuellement.')
+        } else {
+          setImages((current) => current.map((item) => ({ ...item, is_primary: item.id === remaining[0].id })))
+        }
+      } catch {
+        setError('La photo a été supprimée, mais la nouvelle photo principale n’a pas pu être confirmée. Rechargez la galerie.')
       }
     }
+    const cleanupStatus = await cleanupUnreferencedProductImage(id, imageUrl)
+    if (cleanupStatus === 'reference-check-failed') {
+      setError('La photo a été retirée du produit, mais ses références n’ont pas pu être vérifiées. Le fichier a été conservé par sécurité.')
+    } else if (cleanupStatus === 'storage-delete-failed') {
+      setError('La photo a été retirée du produit, mais son fichier reste dans le stockage et devra être nettoyé.')
+    }
     if (isPostHogEnabled) posthog.capture('product_image_deleted', { product_id: id, image_id: imageId })
+    } catch {
+      setError('Connexion interrompue pendant la suppression de la photo. Rechargez la galerie pour vérifier si elle a été retirée; le fichier non confirmé sera conservé.')
+    }
   }
 
   const deleteModel = async () => {
     if (!id || !form.model_url || !(await confirmAction({ title: 'Supprimer le modèle 3D ?', description: 'Le modèle sera retiré du produit. Les photos resteront disponibles.', confirmLabel: 'Supprimer le modèle', tone: 'danger' }))) return
+    try {
     const previousUrl = form.model_url
     const { error: updateError } = await supabase.from('products').update({ model_url: null }).eq('id', id)
     if (updateError) { setError('Impossible de retirer le modèle 3D du produit.'); return }
     setForm((current) => ({ ...current, model_url: '' }))
     setOriginalModelUrl('')
-    const path = storagePath(previousUrl, 'product-models')
+    const path = storageObjectPath(previousUrl, 'product-models')
     if (path && path.startsWith(`${id}/`)) {
       const { data: references, error: referenceError } = await supabase.from('products').select('id').eq('model_url', previousUrl).neq('id', id).limit(1)
       if (referenceError) setError('Le modèle a été retiré du produit, mais le contrôle des références a échoué; le fichier a été conservé par sécurité.')
@@ -281,6 +388,57 @@ export default function AdminProductEdit() {
         if (storageError) setError('Le modèle a été retiré du produit, mais son fichier reste dans le stockage et devra être nettoyé.')
       }
     }
+    } catch {
+      setError('Connexion interrompue pendant la suppression du modèle 3D. Rechargez le produit pour vérifier son état; le fichier non confirmé sera conservé.')
+    }
+  }
+
+  const createDefaultOptions = async () => {
+    if (!id || creatingDefaultOptions) return
+    setCreatingDefaultOptions(true)
+    setError(null)
+
+    try {
+      const existing = await supabase.from('product_options').select('id,name').eq('product_id', id)
+      if (existing.error) throw existing.error
+
+      const names = new Set((existing.data ?? []).map((item) => item.name.trim().toLocaleLowerCase()))
+      const defaults = [
+        { name: 'Forme', sort_order: 0 },
+        { name: 'Couleur', sort_order: 1 },
+      ]
+
+      for (const option of defaults) {
+        if (names.has(option.name.toLocaleLowerCase())) continue
+        const { error: insertError } = await supabase
+          .from('product_options')
+          .insert({ product_id: id, ...option })
+        if (insertError) throw insertError
+      }
+
+      const refreshed = await supabase.from('product_options').select('id,name').eq('product_id', id)
+      if (refreshed.error) throw refreshed.error
+
+      const ordered = [...(refreshed.data ?? [])].sort((a, b) => {
+        const rank = (name: string) => /^forme$/i.test(name.trim()) ? 0 : /^couleur$/i.test(name.trim()) ? 1 : 2
+        return rank(a.name) - rank(b.name) || a.name.localeCompare(b.name)
+      })
+
+      const updates = await Promise.all(
+        ordered.map((option, index) =>
+          supabase.from('product_options').update({ sort_order: index }).eq('id', option.id)
+        )
+      )
+      const failedUpdate = updates.find((result) => result.error)
+      if (failedUpdate?.error) throw failedUpdate.error
+
+      await loadOptions(id)
+    } catch {
+      setError('Impossible de créer ou d’ordonner les options par défaut. Rechargez les options puis réessayez.')
+      await loadOptions(id)
+    } finally {
+      setCreatingDefaultOptions(false)
+    }
   }
 
   const addOption = async () => {
@@ -288,33 +446,63 @@ export default function AdminProductEdit() {
     const name = newOptionName.trim()
     if (!name) return
     setError(null)
-    const { data, error: insertError } = await supabase
-      .from('product_options')
-      .insert({ product_id: id, name, sort_order: options.length })
-      .select('*')
-      .single()
-    if (insertError || !data) {
-      setError("Impossible d'ajouter cette option (un nom identique existe peut-être déjà).")
-      return
+    try {
+      const { data, error: insertError } = await supabase
+        .from('product_options')
+        .insert({ product_id: id, name, sort_order: options.length })
+        .select('*')
+        .single()
+      if (insertError || !data) {
+        setError("Impossible d'ajouter cette option (un nom identique existe peut-être déjà).")
+        return
+      }
+      setOptions((prev) => [...prev, { ...(data as ProductOption), values: [] }])
+      setNewOptionName('')
+    } catch {
+      setError("Connexion interrompue. Vérifiez si l'option a été ajoutée avant de réessayer.")
     }
-    setOptions((prev) => [...prev, { ...(data as ProductOption), values: [] }])
-    setNewOptionName('')
   }
 
   const deleteOption = async (optionId: string) => {
     if (!id) return
-    if (!(await confirmAction({ title: 'Supprimer cette option et ses valeurs ?', description: 'Les variantes concernées perdront ce choix.', confirmLabel: 'Supprimer l’option', tone: 'danger' }))) return
-    const { error: deleteError } = await supabase.from('product_options').delete().eq('id', optionId)
-    if (deleteError) {
-      setError("Impossible de supprimer cette option.")
+    const option = options.find((item) => item.id === optionId)
+    if (variantsLoadFailed || creatingVariants) {
+      setError(variantsLoadFailed
+        ? 'Rechargez les variantes avant de supprimer une option afin de protéger les associations existantes.'
+        : 'Attendez la fin de la création des variantes avant de supprimer une option.')
       return
     }
-    setVariantSelection((prev) => {
-      const next = { ...prev }
-      delete next[optionId]
-      return next
-    })
-    await Promise.all([loadOptions(id), loadVariants(id)])
+    const optionValueIds = (option?.values ?? []).map((value) => value.id)
+    const affectedVariantIds = getVariantIdsUsingOptionValues(variants, optionValueIds)
+    if (affectedVariantIds.length > 0) {
+      setError(`Cette option est utilisée par ${affectedVariantIds.length} variante(s). Supprimez d’abord ces variantes dans la liste des variantes, puis réessayez. Cela évite de conserver des variantes incomplètes ou ambiguës.`)
+      return
+    }
+    if (!(await confirmAction({ title: 'Supprimer cette option et ses valeurs ?', description: 'Cette option et ses valeurs seront supprimées. Aucune variante ne les utilise actuellement.', confirmLabel: 'Supprimer l’option', tone: 'danger' }))) return
+    try {
+      const { error: deleteError } = await supabase.from('product_options').delete().eq('id', optionId)
+      if (deleteError) {
+        setError("Impossible de supprimer cette option.")
+        return
+      }
+      setVariantSelection((prev) => {
+        const next = { ...prev }
+        delete next[optionId]
+        return next
+      })
+      for (const value of option?.values ?? []) {
+        if (!value.image_url) continue
+        const cleanupStatus = await cleanupUnreferencedProductImage(id, value.image_url)
+        if (cleanupStatus === 'reference-check-failed') {
+          setError('Option supprimée, mais les références de certaines photos n’ont pas pu être vérifiées. Les fichiers ont été conservés.')
+        } else if (cleanupStatus === 'storage-delete-failed') {
+          setError('Option supprimée, mais certaines photos restent dans le stockage et devront être nettoyées.')
+        }
+      }
+      await Promise.all([loadOptions(id), loadVariants(id)])
+    } catch {
+      setError('Connexion interrompue. Rechargez les options pour vérifier le résultat; les fichiers non confirmés ont été conservés.')
+    }
   }
 
   const addOptionValuesBulk = async (option: ProductOption) => {
@@ -329,15 +517,20 @@ export default function AdminProductEdit() {
       return true
     })
     if (!unique.length) { setError('Toutes ces valeurs existent déjà.'); return }
-    const { error } = await supabase.from('product_option_values').insert(unique.map((value, index) => ({ option_id: option.id, value, sort_order: (option.values ?? []).length + index })))
-    if (error) { setError("Impossible d'ajouter les valeurs."); return }
-    setBulkValueDraft((prev) => ({ ...prev, [option.id]: '' }))
-    await loadOptions(id)
+    try {
+      const { error } = await supabase.from('product_option_values').insert(unique.map((value, index) => ({ option_id: option.id, value, sort_order: (option.values ?? []).length + index })))
+      if (error) { setError("Impossible d'ajouter les valeurs."); return }
+      setBulkValueDraft((prev) => ({ ...prev, [option.id]: '' }))
+      await loadOptions(id)
+    } catch {
+      setError("Connexion interrompue. Vérifiez si les valeurs ont été ajoutées avant de réessayer.")
+    }
   }
 
   const uploadOptionValueImage = async (valueId: string, event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (!file || !id) return
+    const previousUrl = options.flatMap((option) => option.values ?? []).find((value) => value.id === valueId)?.image_url
     setUploading(true)
     try {
       const check = await validateImage(file)
@@ -348,6 +541,14 @@ export default function AdminProductEdit() {
       const { data } = supabase.storage.from('product-images').getPublicUrl(path)
       const { error } = await supabase.from('product_option_values').update({ image_url: data.publicUrl }).eq('id', valueId)
       if (error) { await supabase.storage.from('product-images').remove([path]); if (/image_url|column/i.test(error.message)) throw new Error('Appliquez la migration 020 pour activer les photos des formes et couleurs.'); throw error }
+      if (previousUrl && previousUrl !== data.publicUrl) {
+        const cleanupStatus = await cleanupUnreferencedProductImage(id, previousUrl)
+        if (cleanupStatus === 'reference-check-failed') {
+          setError('Nouvelle photo enregistrée, mais les références de l’ancienne photo n’ont pas pu être vérifiées. Le fichier a été conservé.')
+        } else if (cleanupStatus === 'storage-delete-failed') {
+          setError('Nouvelle photo enregistrée, mais l’ancienne photo reste dans le stockage.')
+        }
+      }
       await loadOptions(id)
     } catch (err) { setError(err instanceof Error ? err.message : "Erreur lors de l'envoi de la photo.") }
     finally { setUploading(false); event.target.value = '' }
@@ -360,12 +561,12 @@ export default function AdminProductEdit() {
     const shape = shapeOption?.values?.find((v) => v.id === selectedShapeId)
     const chosen = (colorOption?.values ?? []).filter((v) => selectedColorIds.includes(v.id) && v.is_active)
     if (!shape || !chosen.length) { setError('Choisissez une forme et au moins une couleur.'); return }
-    const existing = new Set(variants.map((v) => (v.values ?? []).map((x) => x.option_value_id).sort().join(',')))
-    const missing = chosen.filter((color) => !existing.has([shape.id, color.id].sort().join(',')))
+    const existing = new Set(variants.map((variant) => variantCombinationKey((variant.values ?? []).map((item) => item.option_value_id))))
+    const missing = chosen.filter((color) => !existing.has(variantCombinationKey([shape.id, color.id])))
     if (!missing.length) { setError('Ces variantes existent déjà.'); return }
     const price = variantPrice.trim() ? Math.round(Number(variantPrice)) : null
     const stock = Number(variantStock)
-    if ((price !== null && (!Number.isFinite(price) || price < 0)) || !Number.isFinite(stock) || stock < 0) { setError('Vérifiez le prix et le stock.'); return }
+    if ((price !== null && (!Number.isSafeInteger(price) || price < 0)) || !Number.isSafeInteger(stock) || stock < 0) { setError('Vérifiez le prix et le stock : nombres entiers positifs ou nuls.'); return }
     setCreatingVariants(true); setError(null)
     const created: string[] = []
     try {
@@ -377,18 +578,63 @@ export default function AdminProductEdit() {
         if (linkError) throw linkError
       }
       await loadVariants(id); setSelectedColorIds([]); setVariantPrice(''); setVariantStock('0')
-    } catch (err) { if (created.length) await supabase.from('product_variants').delete().in('id', created); setError(err instanceof Error ? err.message : 'Création impossible.'); await loadVariants(id) }
-    finally { setCreatingVariants(false) }
+    } catch (err) {
+      let cleanupFailed = false
+      if (created.length) {
+        try {
+          const { error: cleanupError } = await supabase.from('product_variants').delete().in('id', created)
+          cleanupFailed = Boolean(cleanupError)
+        } catch {
+          cleanupFailed = true
+        }
+      }
+      setError(cleanupFailed
+        ? 'La création des variantes a échoué et leur nettoyage automatique aussi. Rechargez la liste et vérifiez les variantes.'
+        : err instanceof Error ? err.message : 'Création impossible.')
+      await loadVariants(id)
+    } finally {
+      setCreatingVariants(false)
+    }
   }
 
   const deleteOptionValue = async (valueId: string) => {
     if (!id) return
-    const { error: deleteError } = await supabase.from('product_option_values').delete().eq('id', valueId)
-    if (deleteError) {
-      setError('Impossible de supprimer cette valeur.')
+    const value = options.flatMap((option) => option.values ?? []).find((item) => item.id === valueId)
+    if (variantsLoadFailed || creatingVariants) {
+      setError(variantsLoadFailed
+        ? 'Rechargez les variantes avant de supprimer une valeur afin de protéger les associations existantes.'
+        : 'Attendez la fin de la création des variantes avant de supprimer une valeur.')
       return
     }
-    await Promise.all([loadOptions(id), loadVariants(id)])
+    const affectedVariantIds = getVariantIdsUsingOptionValues(variants, [valueId])
+    if (affectedVariantIds.length > 0) {
+      setError(`Cette valeur est utilisée par ${affectedVariantIds.length} variante(s). Supprimez d’abord ces variantes dans la liste des variantes, puis réessayez. Cela évite de laisser des variantes sans choix valide.`)
+      return
+    }
+    if (!(await confirmAction({
+      title: 'Supprimer cette valeur ?',
+      description: `La valeur « ${value?.value ?? 'sélectionnée'} » sera supprimée. Aucune variante ne l’utilise actuellement.`,
+      confirmLabel: 'Supprimer la valeur',
+      tone: 'danger',
+    }))) return
+    try {
+      const { error: deleteError } = await supabase.from('product_option_values').delete().eq('id', valueId)
+      if (deleteError) {
+        setError('Impossible de supprimer cette valeur.')
+        return
+      }
+      if (value?.image_url) {
+        const cleanupStatus = await cleanupUnreferencedProductImage(id, value.image_url)
+        if (cleanupStatus === 'reference-check-failed') {
+          setError('La valeur a été supprimée, mais les références de sa photo n’ont pas pu être vérifiées. Le fichier a été conservé.')
+        } else if (cleanupStatus === 'storage-delete-failed') {
+          setError('La valeur a été supprimée, mais sa photo reste dans le stockage et devra être nettoyée.')
+        }
+      }
+      await Promise.all([loadOptions(id), loadVariants(id)])
+    } catch {
+      setError('Connexion interrompue. Vérifiez si cette valeur a été supprimée avant de réessayer.')
+    }
   }
 
   const selectedValueIds = options.map((option) => variantSelection[option.id]).filter(Boolean)
@@ -409,83 +655,78 @@ export default function AdminProductEdit() {
 
     const price = variantPrice.trim() ? Math.round(Number(variantPrice)) : null
     const stock = Number(variantStock)
-    if (price !== null && (!Number.isFinite(price) || price < 0)) {
-      setError('Le prix des variantes doit être un nombre positif.')
+    if (price !== null && (!Number.isSafeInteger(price) || price < 0)) {
+      setError('Le prix des variantes doit être un nombre entier positif.')
       return
     }
-    if (!Number.isFinite(stock) || stock < 0) {
-      setError('Le stock initial doit être un nombre positif ou nul.')
+    if (!Number.isSafeInteger(stock) || stock < 0) {
+      setError('Le stock initial doit être un nombre entier positif ou nul.')
       return
     }
 
     setError(null)
-    const { data: created, error: createError } = await supabase
-      .from('product_variants')
-      .insert(missingValues.map((value) => ({
-        product_id: id,
-        label: value.value,
-        price_dzd: price,
-        stock_quantity: Math.round(stock),
-      })))
-      .select('id, label')
+    setCreatingVariants(true)
+    try {
+      const { data: created, error: createError } = await supabase
+        .from('product_variants')
+        .insert(missingValues.map((value) => ({
+          product_id: id,
+          label: value.value,
+          price_dzd: price,
+          stock_quantity: stock,
+        })))
+        .select('id, label')
 
-    if (createError || !created?.length) {
-      setError('Impossible de créer automatiquement les variantes.')
-      return
+      if (createError || !created?.length) {
+        setError('Impossible de créer automatiquement les variantes.')
+        return
+      }
+
+      const links = created.map((variant) => {
+        const value = missingValues.find((item) => item.value === variant.label)
+        return value ? { variant_id: variant.id, option_value_id: value.id } : null
+      }).filter((link): link is { variant_id: string; option_value_id: string } => link !== null)
+
+      const { error: linkError } = await supabase.from('product_variant_values').insert(links)
+      if (linkError) {
+        const cleanup = await supabase.from('product_variants').delete().in('id', created.map((variant) => variant.id))
+        setError(cleanup.error
+          ? 'Les variantes n’ont pas pu être reliées et le nettoyage automatique a échoué. Vérifiez les variantes avant de recommencer.'
+          : 'Les variantes n’ont pas pu être reliées. Les créations partielles ont été annulées.')
+        return
+      }
+
+      await loadVariants(id)
+      setVariantSelection({})
+      setVariantPrice('')
+      setVariantStock('0')
+    } catch {
+      setError('Connexion interrompue. Rechargez les variantes pour vérifier le résultat avant de réessayer.')
+      await loadVariants(id)
+    } finally {
+      setCreatingVariants(false)
     }
-
-    const links = created.map((variant) => {
-      const value = missingValues.find((item) => item.value === variant.label)
-      return value ? { variant_id: variant.id, option_value_id: value.id } : null
-    }).filter((link): link is { variant_id: string; option_value_id: string } => link !== null)
-
-    const { error: linkError } = await supabase.from('product_variant_values').insert(links)
-    if (linkError) {
-      await supabase.from('product_variants').delete().in('id', created.map((variant) => variant.id))
-      setError('Les variantes n’ont pas pu être reliées à leurs valeurs. Aucune variante partielle n’a été conservée.')
-      return
-    }
-
-    await loadVariants(id)
   }
 
   const createAllVariantCombinations = async () => {
     if (!id || options.length === 0) return
-    const optionValues = options.map((option) => ({
-      option,
-      values: (option.values ?? []).filter((value) => value.is_active),
-    }))
-    if (optionValues.some((item) => item.values.length === 0)) {
+    const result = buildVariantCombinations(
+      options.map((option) => ({ id: option.id, values: option.values ?? [] }))
+    )
+    if (result.reason === 'empty-options') return
+    if (result.reason === 'missing-values') {
       setError('Ajoutez au moins une valeur active pour chaque option.')
       return
     }
-
-    const combinations: { valueIds: string[]; label: string }[] = []
-    const build = (index: number, selected: { optionId: string; valueId: string; label: string }[]) => {
-      if (index === optionValues.length) {
-        combinations.push({
-          valueIds: selected.map((item) => item.valueId),
-          label: selected.map((item) => item.label).join(' / '),
-        })
-        return
-      }
-      const current = optionValues[index]
-      current.values.forEach((value) => build(index + 1, [
-        ...selected,
-        { optionId: current.option.id, valueId: value.id, label: value.value },
-      ]))
-    }
-    build(0, [])
-
-    if (combinations.length > 100) {
+    if (result.reason === 'limit-exceeded') {
       setError('Cette configuration crée plus de 100 variantes. Réduisez les valeurs ou créez les variantes nécessaires manuellement.')
       return
     }
 
     const existing = new Set(variants.map((variant) =>
-      (variant.values ?? []).map((item) => item.option_value_id).sort().join(',')
+      variantCombinationKey((variant.values ?? []).map((item) => item.option_value_id))
     ))
-    const missing = combinations.filter((item) => !existing.has([...item.valueIds].sort().join(',')))
+    const missing = result.combinations.filter((item) => !existing.has(variantCombinationKey(item.valueIds)))
     if (missing.length === 0) {
       setError('Toutes les combinaisons existent déjà.')
       return
@@ -493,11 +734,11 @@ export default function AdminProductEdit() {
 
     const price = variantPrice.trim() ? Math.round(Number(variantPrice)) : null
     const stock = Number(variantStock)
-    if (price !== null && (!Number.isFinite(price) || price < 0)) {
+    if (price !== null && (!Number.isSafeInteger(price) || price < 0)) {
       setError('Le prix des variantes doit être un nombre positif.')
       return
     }
-    if (!Number.isFinite(stock) || stock < 0) {
+    if (!Number.isSafeInteger(stock) || stock < 0) {
       setError('Le stock initial doit être un nombre positif ou nul.')
       return
     }
@@ -530,14 +771,20 @@ export default function AdminProductEdit() {
       setVariantPrice('')
       setVariantStock('0')
     } catch (err) {
+      let cleanupFailed = false
       if (createdIds.length > 0) {
-        const { error: cleanupError } = await supabase.from('product_variants').delete().in('id', createdIds)
-        setError(cleanupError
-          ? 'Une erreur est survenue et certaines variantes peuvent nécessiter une vérification dans l’administration.'
-          : 'La création a échoué. Les variantes créées pendant cette opération ont été annulées.')
-      } else {
-        setError(err instanceof Error ? err.message : 'Impossible de créer les variantes.')
+        try {
+          const { error: cleanupError } = await supabase.from('product_variants').delete().in('id', createdIds)
+          cleanupFailed = Boolean(cleanupError)
+        } catch {
+          cleanupFailed = true
+        }
       }
+      setError(cleanupFailed
+        ? 'La création a échoué et le nettoyage automatique aussi. Vérifiez les variantes avant de recommencer.'
+        : createdIds.length > 0
+          ? 'La création a échoué. Les variantes créées pendant cette opération ont été annulées.'
+          : err instanceof Error ? err.message : 'Impossible de créer les variantes.')
       await loadVariants(id)
     } finally {
       setCreatingVariants(false)
@@ -548,13 +795,10 @@ export default function AdminProductEdit() {
     if (!id || !combinationComplete) return
     setError(null)
 
-    const signature = [...selectedValueIds].sort().join(',')
+    const signature = variantCombinationKey(selectedValueIds)
     const duplicate = variants.some(
       (variant) =>
-        (variant.values ?? [])
-          .map((item) => item.option_value_id)
-          .sort()
-          .join(',') === signature
+        variantCombinationKey((variant.values ?? []).map((item) => item.option_value_id)) === signature
     )
     if (duplicate) {
       setError('Cette combinaison existe déjà.')
@@ -567,41 +811,56 @@ export default function AdminProductEdit() {
       .join(' / ')
 
     const price = variantPrice.trim() ? Math.round(Number(variantPrice)) : null
-    if (price !== null && (!Number.isFinite(price) || price < 0)) {
-      setError('Le prix de la variante doit être un nombre positif.')
+    const stock = Number(variantStock)
+    if (price !== null && (!Number.isSafeInteger(price) || price < 0)) {
+      setError('Le prix de la variante doit être un nombre entier positif.')
+      return
+    }
+    if (!Number.isSafeInteger(stock) || stock < 0) {
+      setError('Le stock de la variante doit être un nombre entier positif ou nul.')
       return
     }
 
-    const { data, error: variantError } = await supabase
-      .from('product_variants')
-      .insert({
-        product_id: id,
-        label,
-        price_dzd: price,
-        stock_quantity: Math.max(0, Math.round(Number(variantStock) || 0)),
-      })
-      .select('id')
-      .single()
+    setCreatingVariants(true)
+    try {
+      const { data, error: variantError } = await supabase
+        .from('product_variants')
+        .insert({
+          product_id: id,
+          label,
+          price_dzd: price,
+          stock_quantity: stock,
+        })
+        .select('id')
+        .single()
 
-    if (variantError || !data) {
-      setError("Impossible de créer la variante.")
-      return
+      if (variantError || !data) {
+        setError("Impossible de créer la variante.")
+        return
+      }
+
+      const { error: linkError } = await supabase
+        .from('product_variant_values')
+        .insert(selectedValueIds.map((valueId) => ({ variant_id: data.id, option_value_id: valueId })))
+
+      if (linkError) {
+        const cleanup = await supabase.from('product_variants').delete().eq('id', data.id)
+        setError(cleanup.error
+          ? 'Les options de la variante n’ont pas pu être enregistrées et le nettoyage a échoué. Vérifiez cette variante.'
+          : 'Impossible d’enregistrer les options de cette variante. La création partielle a été annulée.')
+        return
+      }
+
+      setVariantSelection({})
+      setVariantPrice('')
+      setVariantStock('0')
+      await loadVariants(id)
+    } catch {
+      setError('Connexion interrompue. Rechargez les variantes pour vérifier le résultat avant de réessayer.')
+      await loadVariants(id)
+    } finally {
+      setCreatingVariants(false)
     }
-
-    const { error: linkError } = await supabase
-      .from('product_variant_values')
-      .insert(selectedValueIds.map((valueId) => ({ variant_id: data.id, option_value_id: valueId })))
-
-    if (linkError) {
-      await supabase.from('product_variants').delete().eq('id', data.id)
-      setError('Impossible d’enregistrer les options de cette variante.')
-      return
-    }
-
-    setVariantSelection({})
-    setVariantPrice('')
-    setVariantStock('0')
-    await loadVariants(id)
   }
 
   const handleVariantImageUpload = async (
@@ -610,6 +869,7 @@ export default function AdminProductEdit() {
   ) => {
     const file = event.target.files?.[0]
     if (!file || !id) return
+    const previousUrl = variant.image_url
     setUploading(true)
     setError(null)
     try {
@@ -636,6 +896,14 @@ export default function AdminProductEdit() {
       setVariants((current) =>
         current.map((item) => item.id === variant.id ? { ...item, image_url: urlData.publicUrl } : item)
       )
+      if (previousUrl && previousUrl !== urlData.publicUrl) {
+        const cleanupStatus = await cleanupUnreferencedProductImage(id, previousUrl)
+        if (cleanupStatus === 'reference-check-failed') {
+          setError('Nouvelle photo enregistrée, mais les références de l’ancienne photo n’ont pas pu être vérifiées. Le fichier a été conservé.')
+        } else if (cleanupStatus === 'storage-delete-failed') {
+          setError('Nouvelle photo enregistrée, mais l’ancienne photo reste dans le stockage.')
+        }
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erreur lors du téléversement de la photo.')
     } finally {
@@ -645,25 +913,52 @@ export default function AdminProductEdit() {
   }
 
   const toggleVariant = async (variant: ProductVariant) => {
-    const { error: updateError } = await supabase
-      .from('product_variants')
-      .update({ is_active: !variant.is_active })
-      .eq('id', variant.id)
-    if (updateError) {
-      setError('Impossible de modifier cette variante.')
-      return
+    try {
+      const { error: updateError } = await supabase
+        .from('product_variants')
+        .update({ is_active: !variant.is_active })
+        .eq('id', variant.id)
+      if (updateError) {
+        setError('Impossible de modifier cette variante.')
+        return
+      }
+      if (id) await loadVariants(id)
+    } catch {
+      setError('Connexion interrompue. Vérifiez le statut de cette variante avant de réessayer.')
     }
-    if (id) await loadVariants(id)
   }
 
   const deleteVariant = async (variantId: string) => {
     if (!id) return
-    const { error: deleteError } = await supabase.from('product_variants').delete().eq('id', variantId)
-    if (deleteError) {
-      setError('Impossible de supprimer cette variante.')
+    if (creatingVariants) {
+      setError('Attendez la fin de la création des variantes avant de supprimer une variante.')
       return
     }
-    await loadVariants(id)
+    const variant = variants.find((item) => item.id === variantId)
+    if (!(await confirmAction({
+      title: 'Supprimer cette variante ?',
+      description: `La variante « ${variantLabel(variant ?? { id: variantId, product_id: id, sku: null, label: null, price_dzd: null, stock_quantity: 0, made_to_order: null, is_active: false, values: [] })} » sera supprimée.`,
+      confirmLabel: 'Supprimer la variante',
+      tone: 'danger',
+    }))) return
+    try {
+      const { error: deleteError } = await supabase.from('product_variants').delete().eq('id', variantId)
+      if (deleteError) {
+        setError('Impossible de supprimer cette variante.')
+        return
+      }
+      if (variant?.image_url) {
+        const cleanupStatus = await cleanupUnreferencedProductImage(id, variant.image_url)
+        if (cleanupStatus === 'reference-check-failed') {
+          setError('La variante a été supprimée, mais les références de sa photo n’ont pas pu être vérifiées. Le fichier a été conservé.')
+        } else if (cleanupStatus === 'storage-delete-failed') {
+          setError('La variante a été supprimée, mais sa photo reste dans le stockage et devra être nettoyée.')
+        }
+      }
+      await loadVariants(id)
+    } catch {
+      setError('Connexion interrompue. Vérifiez si cette variante a été supprimée avant de réessayer.')
+    }
   }
 
   const variantLabel = (variant: ProductVariant) => {
@@ -680,8 +975,21 @@ export default function AdminProductEdit() {
       setError('Le nom du produit est requis.')
       return
     }
-    if (form.price_dzd < 0) {
-      setError('Le prix doit être un nombre positif.')
+    if (!Number.isSafeInteger(form.price_dzd) || form.price_dzd < 0) {
+      setError('Le prix doit être un nombre entier de dinars positif.')
+      return
+    }
+    if (!form.made_to_order && (!Number.isSafeInteger(form.stock_quantity) || form.stock_quantity < 0)) {
+      setError('Le stock doit être un nombre entier positif ou nul.')
+      return
+    }
+    const leadDays = form.production_lead_days.trim() ? Number(form.production_lead_days) : null
+    const weight = form.weight_g.trim() ? Number(form.weight_g) : null
+    if (
+      (leadDays !== null && (!Number.isSafeInteger(leadDays) || leadDays < 0)) ||
+      (weight !== null && (!Number.isFinite(weight) || weight <= 0))
+    ) {
+      setError('Vérifiez le délai de production et le poids renseignés.')
       return
     }
     setSaving(true)
@@ -699,8 +1007,8 @@ export default function AdminProductEdit() {
         price_dzd: Math.round(form.price_dzd),
         stock_quantity: form.made_to_order ? 0 : Math.round(form.stock_quantity),
         made_to_order: form.made_to_order,
-        production_lead_days: form.production_lead_days ? parseInt(form.production_lead_days) : null,
-        weight_g: form.weight_g ? parseFloat(form.weight_g) : null,
+        production_lead_days: leadDays,
+        weight_g: weight,
         dimensions: form.dimensions || null,
         material: form.material || null,
         model_url: form.model_url || null,
@@ -710,7 +1018,16 @@ export default function AdminProductEdit() {
         seo_description: form.seo_description || null,
       }
       const { error: seoColumnError } = await supabase.from('products').select('seo_keywords').limit(1)
-      const savePayload = seoColumnError
+      const missingSeoColumn = Boolean(
+        seoColumnError &&
+        (seoColumnError.code === '42703' ||
+          seoColumnError.code === 'PGRST204' ||
+          /column .*seo_keywords|schema cache/i.test(seoColumnError.message))
+      )
+      if (seoColumnError && !missingSeoColumn) {
+        throw new Error('Impossible de vérifier les champs SEO. Le produit n’a pas été enregistré.')
+      }
+      const savePayload = missingSeoColumn
         ? payload
         : { ...payload, seo_keywords: form.seo_keywords.split(',').map((keyword) => keyword.trim()).filter(Boolean) }
 
@@ -725,7 +1042,7 @@ export default function AdminProductEdit() {
         const { error: upErr } = await supabase.from('products').update(savePayload).eq('id', id)
         if (upErr) throw upErr
         if (originalModelUrl && originalModelUrl !== payload.model_url) {
-          const previousPath = storagePath(originalModelUrl, 'product-models')
+          const previousPath = storageObjectPath(originalModelUrl, 'product-models')
           if (previousPath && previousPath.startsWith(`${id}/`)) {
             const { data: references, error: referenceError } = await supabase.from('products').select('id').eq('model_url', originalModelUrl).neq('id', id).limit(1)
             if (!referenceError && !references?.length) {
@@ -740,7 +1057,7 @@ export default function AdminProductEdit() {
         }
         // Le bandeau de visibilité doit refléter l'état réellement enregistré.
         setForm((prev) => ({ ...prev, status: payload.status }))
-        if (seoColumnError && form.seo_keywords.trim()) setError('Produit enregistré. Les mots-clés SEO seront sauvegardés après application de la migration 014.')
+        if (missingSeoColumn && form.seo_keywords.trim()) setError('Produit enregistré. Les mots-clés SEO seront disponibles après application de la migration 014.')
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur lors de l'enregistrement du produit.")
@@ -783,8 +1100,13 @@ export default function AdminProductEdit() {
       )}
 
       {error && (
-        <div className="mb-6 rounded-lg border border-brand-red/30 bg-brand-red/10 px-4 py-3 text-sm text-brand-red-light">
-          {error}
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-brand-red/30 bg-brand-red/10 px-4 py-3 text-sm text-brand-red-light">
+          <span>{error}</span>
+          {variantsLoadFailed && id && (
+            <button type="button" onClick={() => void loadVariants(id)} className="btn-secondary">
+              Recharger les variantes
+            </button>
+          )}
         </div>
       )}
 
@@ -925,24 +1247,7 @@ export default function AdminProductEdit() {
                 1. Ajoutez les formes et les couleurs une seule fois. 2. Ajoutez une photo à chaque valeur si nécessaire. 3. Pour chaque forme, cochez uniquement les couleurs disponibles et créez les variantes correspondantes. Le choix du client sera enregistré dans sa commande.
               </p>
 
-              <button type="button" onClick={async () => {
-                if (!id) return
-                const existing = await supabase.from('product_options').select('id,name').eq('product_id', id)
-                if (existing.error) { setError('Impossible de charger les options du produit.'); return }
-                const names = new Set((existing.data ?? []).map((item) => item.name.trim().toLowerCase()))
-                if (!names.has('forme')) {
-                  const { error } = await supabase.from('product_options').insert({ product_id: id, name: 'Forme', sort_order: 0 })
-                  if (error) { setError('Impossible de créer Forme.'); return }
-                }
-                if (!names.has('couleur')) {
-                  const { error } = await supabase.from('product_options').insert({ product_id: id, name: 'Couleur', sort_order: 1 })
-                  if (error) { setError('Impossible de créer Couleur.'); return }
-                }
-                const refreshed = await supabase.from('product_options').select('id,name').eq('product_id', id)
-                const ordered = (refreshed.data ?? []).slice().sort((a,b) => (/^forme$/i.test(a.name)?0:/^couleur$/i.test(a.name)?1:2)-(/^forme$/i.test(b.name)?0:/^couleur$/i.test(b.name)?1:2))
-                for (let index=0; index<ordered.length; index++) await supabase.from('product_options').update({ sort_order:index }).eq('id',ordered[index].id)
-                await loadOptions(id)
-              }} className="btn-secondary mb-3"><Plus className="h-4 w-4"/> Créer rapidement Forme + Couleur</button>
+              <button type="button" onClick={createDefaultOptions} disabled={creatingDefaultOptions} className="btn-secondary mb-3 disabled:cursor-not-allowed disabled:opacity-60"><Plus className="h-4 w-4"/> {creatingDefaultOptions ? 'Création des options…' : 'Créer rapidement Forme + Couleur'}</button>
               <div className="flex gap-2">
                 <input
                   type="text"
@@ -1068,7 +1373,7 @@ export default function AdminProductEdit() {
                     <button
                       type="button"
                       onClick={createVariant}
-                      disabled={!combinationComplete}
+                      disabled={creatingVariants || !combinationComplete}
                       className="btn-primary"
                     >
                       <Plus className="h-4 w-4" />
@@ -1078,7 +1383,7 @@ export default function AdminProductEdit() {
                       <button
                         type="button"
                         onClick={() => void createVariantsForSingleOption()}
-                        disabled={!(options[0].values ?? []).some((value) => value.is_active)}
+                        disabled={creatingVariants || !(options[0].values ?? []).some((value) => value.is_active)}
                         className="btn-secondary"
                       >
                         Créer une variante par valeur

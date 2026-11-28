@@ -125,24 +125,37 @@ export default function AdminRequests() {
   const load = useCallback(async () => {
     const sequence = ++requestLoadSequence.current
     setLoading(true)
-    let requestQuery = supabase.from('custom_requests').select(REQUEST_SELECT)
-    requestQuery = view === 'approved'
-      ? requestQuery.eq('status', 'approved')
-      : requestQuery.neq('status', 'approved')
-    const [{ data, error: queryError }, { data: mats }] = await Promise.all([
-      requestQuery.order('created_at', { ascending: false }).limit(100),
-      supabase.from('manufacturing_materials').select('name').eq('is_available', true).order('name'),
-    ])
-    if (sequence !== requestLoadSequence.current) return
-    if (queryError) {
-      setError('Impossible de charger les demandes.')
-      setRequests([])
-    } else {
-      setError(null)
-      setRequests((data as RequestRow[]) ?? [])
+    try {
+      let requestQuery = supabase.from('custom_requests').select(REQUEST_SELECT)
+      requestQuery = view === 'approved'
+        ? requestQuery.eq('status', 'approved')
+        : requestQuery.neq('status', 'approved')
+      const [requestResult, materialResult] = await Promise.all([
+        requestQuery.order('created_at', { ascending: false }).limit(100),
+        supabase.from('manufacturing_materials').select('name').eq('is_available', true).order('name'),
+      ])
+      if (sequence !== requestLoadSequence.current) return
+      if (requestResult.error) {
+        setError('Impossible de charger les demandes.')
+        setRequests([])
+      } else {
+        setError(null)
+        setRequests((requestResult.data as RequestRow[]) ?? [])
+      }
+      if (materialResult.error) {
+        setError('Les demandes sont chargées, mais la liste des matériaux est indisponible.')
+        setMaterials([])
+      } else {
+        setMaterials((materialResult.data as { name: string }[]) ?? [])
+      }
+    } catch {
+      if (sequence === requestLoadSequence.current) {
+        setError('Connexion interrompue pendant le chargement des demandes.')
+        setRequests([])
+      }
+    } finally {
+      if (sequence === requestLoadSequence.current) setLoading(false)
     }
-    setMaterials((mats as { name: string }[]) ?? [])
-    setLoading(false)
   }, [view])
 
   useEffect(() => {
@@ -159,12 +172,13 @@ export default function AdminRequests() {
       return
     }
 
-    void supabase
-      .from('custom_requests')
-      .select(REQUEST_SELECT)
-      .eq('id', requestedRequestId)
-      .maybeSingle()
-      .then(({ data, error: targetError }) => {
+    const loadRequestedRequest = async () => {
+      try {
+        const { data, error: targetError } = await supabase
+          .from('custom_requests')
+          .select(REQUEST_SELECT)
+          .eq('id', requestedRequestId)
+          .maybeSingle()
         if (new URLSearchParams(window.location.search).get('request') !== requestedRequestId) return
         if (targetError || !data) {
           setError('La demande liée à cette notification est introuvable ou n’est plus accessible.')
@@ -175,7 +189,13 @@ export default function AdminRequests() {
         else if (target.status !== 'approved' && view === 'approved') setView('active')
         setRequests((current) => [target, ...current.filter((item) => item.id !== target.id)])
         setExpanded(target.id)
-      })
+      } catch {
+        if (new URLSearchParams(window.location.search).get('request') === requestedRequestId) {
+          setError('Connexion interrompue. Impossible de charger la demande liée à cette notification.')
+        }
+      }
+    }
+    void loadRequestedRequest()
   }, [loading, requests, requestedRequestId, view])
 
   const openNewQuote = (request: RequestRow) => {
@@ -211,35 +231,44 @@ export default function AdminRequests() {
     }
 
     setBusy(true)
-    const { error: rpcError } = await supabase.rpc('create_custom_quote', {
-      p_request_id: requestId,
-      p_price_dzd: Math.round(parsedPrice),
-      p_lead_days: leadDays ? Number(leadDays) : null,
-      p_valid_until: validUntil,
-      p_terms: terms.trim() || null,
-    })
-    setBusy(false)
-
-    if (rpcError) {
-      setError(orderErrorMessage(rpcError.message, "Impossible d'émettre ce devis."))
-      return
+    try {
+      const { error: rpcError } = await supabase.rpc('create_custom_quote', {
+        p_request_id: requestId,
+        p_price_dzd: Math.round(parsedPrice),
+        p_lead_days: leadDays ? Number(leadDays) : null,
+        p_valid_until: validUntil,
+        p_terms: terms.trim() || null,
+      })
+      if (rpcError) {
+        setError(orderErrorMessage(rpcError.message, "Impossible d'émettre ce devis."))
+        return
+      }
+      setQuoteRequestId(null)
+      await load()
+    } catch {
+      setError('Connexion interrompue. Vérifiez si le devis a été créé avant de réessayer.')
+    } finally {
+      setBusy(false)
     }
-    setQuoteRequestId(null)
-    await load()
   }
 
   const setStatus = async (requestId: string, status: string) => {
     setBusy(true)
-    const { error: rpcError } = await supabase.rpc('set_custom_request_status', {
-      p_request_id: requestId,
-      p_status: status,
-    })
-    setBusy(false)
-    if (rpcError) {
-      setError(orderErrorMessage(rpcError.message, 'Impossible de modifier le statut.'))
-      return
+    try {
+      const { error: rpcError } = await supabase.rpc('set_custom_request_status', {
+        p_request_id: requestId,
+        p_status: status,
+      })
+      if (rpcError) {
+        setError(orderErrorMessage(rpcError.message, 'Impossible de modifier le statut.'))
+        return
+      }
+      await load()
+    } catch {
+      setError('Connexion interrompue. Vérifiez le statut de la demande avant de réessayer.')
+    } finally {
+      setBusy(false)
     }
-    await load()
   }
 
   const submitAutoQuote = async (requestId: string) => {
@@ -259,21 +288,26 @@ export default function AdminRequests() {
       return
     }
     setBusy(true)
-    const { error: rpcError } = await supabase.rpc('quote_custom_manufacturing', {
-      p_request_id: requestId,
-      p_material_name: autoMaterial,
-      p_grams: grams,
-      p_print_hours: hours,
-      p_options: autoOptions,
-      p_rush: autoRush,
-    })
-    setBusy(false)
-    if (rpcError) {
-      setError(orderErrorMessage(rpcError.message, "Impossible d'émettre ce devis automatique."))
-      return
+    try {
+      const { error: rpcError } = await supabase.rpc('quote_custom_manufacturing', {
+        p_request_id: requestId,
+        p_material_name: autoMaterial,
+        p_grams: grams,
+        p_print_hours: hours,
+        p_options: autoOptions,
+        p_rush: autoRush,
+      })
+      if (rpcError) {
+        setError(orderErrorMessage(rpcError.message, "Impossible d'émettre ce devis automatique."))
+        return
+      }
+      setAutoRequestId(null)
+      await load()
+    } catch {
+      setError('Connexion interrompue. Vérifiez si le devis automatique a été créé avant de réessayer.')
+    } finally {
+      setBusy(false)
     }
-    setAutoRequestId(null)
-    await load()
   }
 
   const createQuoteFromEstimate = async (request: RequestRow) => {
@@ -283,30 +317,40 @@ export default function AdminRequests() {
       return
     }
     setBusy(true)
-    const { error: rpcError } = await supabase.rpc('create_custom_quote_from_estimate', {
-      p_request_id: request.id,
-    })
-    setBusy(false)
-    if (rpcError) {
-      setError(orderErrorMessage(rpcError.message, "Impossible de créer le devis depuis l'estimation."))
-      return
+    try {
+      const { error: rpcError } = await supabase.rpc('create_custom_quote_from_estimate', {
+        p_request_id: request.id,
+      })
+      if (rpcError) {
+        setError(orderErrorMessage(rpcError.message, "Impossible de créer le devis depuis l'estimation."))
+        return
+      }
+      await load()
+    } catch {
+      setError('Connexion interrompue. Vérifiez si le devis a été créé avant de réessayer.')
+    } finally {
+      setBusy(false)
     }
-    await load()
   }
 
   const approveQuote = async (quote: Quote) => {
     setError(null)
     if (!(await confirmAction({ title: 'Approuver le devis', description: `Approuver le devis v${quote.version} et créer la commande correspondante ?`, confirmLabel: 'Approuver et créer' }))) return
     setBusy(true)
-    const { error: rpcError } = await supabase.rpc('owner_approve_custom_request', {
-      p_quote_id: quote.id,
-    })
-    setBusy(false)
-    if (rpcError) {
-      setError(orderErrorMessage(rpcError.message, "Impossible d'approuver cette demande."))
-      return
+    try {
+      const { error: rpcError } = await supabase.rpc('owner_approve_custom_request', {
+        p_quote_id: quote.id,
+      })
+      if (rpcError) {
+        setError(orderErrorMessage(rpcError.message, "Impossible d'approuver cette demande."))
+        return
+      }
+      await load()
+    } catch {
+      setError('Connexion interrompue. Vérifiez si la commande a été créée avant de réessayer.')
+    } finally {
+      setBusy(false)
     }
-    await load()
   }
 
   const rejectRequest = async (request: RequestRow) => {
@@ -314,16 +358,21 @@ export default function AdminRequests() {
     const reason = prompt('Motif du refus (optionnel) :') ?? ''
     if (!(await confirmAction({ title: 'Refuser cette demande ?', description: `La demande ${request.request_number} sera marquée comme refusée.`, confirmLabel: 'Refuser', tone: 'danger' }))) return
     setBusy(true)
-    const { error: rpcError } = await supabase.rpc('owner_reject_custom_request', {
-      p_request_id: request.id,
-      p_reason: reason.trim() || null,
-    })
-    setBusy(false)
-    if (rpcError) {
-      setError(orderErrorMessage(rpcError.message, 'Impossible de refuser cette demande.'))
-      return
+    try {
+      const { error: rpcError } = await supabase.rpc('owner_reject_custom_request', {
+        p_request_id: request.id,
+        p_reason: reason.trim() || null,
+      })
+      if (rpcError) {
+        setError(orderErrorMessage(rpcError.message, 'Impossible de refuser cette demande.'))
+        return
+      }
+      await load()
+    } catch {
+      setError('Connexion interrompue. Vérifiez le statut de la demande avant de réessayer.')
+    } finally {
+      setBusy(false)
     }
-    await load()
   }
 
   const openFile = async (file: RequestFile) => {
@@ -347,46 +396,49 @@ export default function AdminRequests() {
     if (!(await confirmAction({ title: 'Confirmer la suppression de la demande ?', description: confirmation, confirmLabel: 'Continuer la suppression', tone: 'danger' }))) return
 
     setBusy(true)
-    const { data, error: beginError } = await supabase.rpc('begin_custom_request_deletion', {
-      p_request_id: request.id,
-    })
-    if (beginError || !data) {
-      setBusy(false)
-      setError(orderErrorMessage(beginError?.message, 'Impossible de préparer la suppression de cette demande.'))
-      return
-    }
+    try {
+      const { data, error: beginError } = await supabase.rpc('begin_custom_request_deletion', {
+        p_request_id: request.id,
+      })
+      if (beginError || !data) {
+        setError(orderErrorMessage(beginError?.message, 'Impossible de préparer la suppression de cette demande.'))
+        return
+      }
 
-    const deletion = data as { deletion_token?: string; file_paths?: string[] }
-    const filePaths = Array.isArray(deletion.file_paths) ? deletion.file_paths : []
-    if (!deletion.deletion_token) {
-      setBusy(false)
-      setError('La préparation de suppression a échoué. Réessayez ou contactez le support technique.')
-      return
-    }
+      const deletion = data as { deletion_token?: string; file_paths?: string[] }
+      const filePaths = Array.isArray(deletion.file_paths) ? deletion.file_paths : []
+      if (!deletion.deletion_token) {
+        setError('La préparation de suppression a échoué. Réessayez ou contactez le support technique.')
+        return
+      }
 
-    if (filePaths.length > 0) {
-      const { error: storageError } = await supabase.storage.from('custom-requests').remove(filePaths)
-      if (storageError) {
-        setBusy(false)
-        setError('Suppression préparée mais fichiers non nettoyés. Réessayez pour terminer sans laisser de fichiers orphelins.')
+      if (filePaths.length > 0) {
+        const { error: storageError } = await supabase.storage.from('custom-requests').remove(filePaths)
+        if (storageError) {
+          setError('Suppression préparée mais fichiers non nettoyés. Réessayez pour terminer sans laisser de fichiers orphelins.')
+          await load()
+          return
+        }
+      }
+
+      const { error: finishError } = await supabase.rpc('finish_custom_request_deletion', {
+        p_request_id: request.id,
+        p_deletion_token: deletion.deletion_token,
+        p_deleted_paths: filePaths,
+      })
+      if (finishError) {
+        setError(orderErrorMessage(finishError.message, 'Les fichiers ont été nettoyés, mais la suppression de la demande reste à terminer. Réessayez.'))
         await load()
         return
       }
-    }
-
-    const { error: finishError } = await supabase.rpc('finish_custom_request_deletion', {
-      p_request_id: request.id,
-      p_deletion_token: deletion.deletion_token,
-      p_deleted_paths: filePaths,
-    })
-    setBusy(false)
-    if (finishError) {
-      setError(orderErrorMessage(finishError.message, 'Les fichiers ont été nettoyés, mais la suppression de la demande reste à terminer. Réessayez.'))
+      setNotice(`La demande ${request.request_number} a été supprimée. L’événement reste dans le journal d’audit.`)
       await load()
-      return
+    } catch {
+      setError('Connexion interrompue. La demande peut être en cours de suppression ; rechargez la liste avant toute nouvelle tentative.')
+      await load()
+    } finally {
+      setBusy(false)
     }
-    setNotice(`La demande ${request.request_number} a été supprimée. L’événement reste dans le journal d’audit.`)
-    await load()
   }
 
   return (

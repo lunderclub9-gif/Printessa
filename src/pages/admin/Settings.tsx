@@ -62,13 +62,27 @@ export default function AdminSettings() {
 
 
   const load = useCallback(async () => {
-    const { data: settings } = await supabase.from('store_settings').select('key, value, is_public').order('key')
-    const next: Record<string, string> = {}
-    ;((settings as Setting[]) ?? []).forEach((row) => {
-      next[row.key] = row.value ?? ''
-    })
-    setValues(next)
-    setLoading(false)
+    setLoading(true)
+    setError(null)
+    try {
+      const { data: settings, error: loadError } = await supabase
+        .from('store_settings')
+        .select('key, value, is_public')
+        .order('key')
+      if (loadError) {
+        setError('Impossible de charger les paramètres. Vos valeurs actuelles ont été conservées.')
+        return
+      }
+      const next: Record<string, string> = {}
+      ;((settings as Setting[]) ?? []).forEach((row) => {
+        next[row.key] = row.value ?? ''
+      })
+      setValues(next)
+    } catch {
+      setError('Connexion interrompue. Vos valeurs actuelles ont été conservées.')
+    } finally {
+      setLoading(false)
+    }
   }, [])
 
   useEffect(() => {
@@ -157,16 +171,20 @@ export default function AdminSettings() {
       key,
       value: value.trim() ? value.trim() : null,
     }))
-    const { error: writeError } = await supabase
-      .from('store_settings')
-      .upsert(rows, { onConflict: 'key' })
-    setSaving(false)
-
-    if (writeError) {
-      setError("Impossible d'enregistrer les paramètres.")
-      return
+    try {
+      const { error: writeError } = await supabase
+        .from('store_settings')
+        .upsert(rows, { onConflict: 'key' })
+      if (writeError) {
+        setError("Impossible d'enregistrer les paramètres.")
+        return
+      }
+      setSaved(true)
+    } catch {
+      setError("Connexion interrompue. Les paramètres n'ont pas été confirmés comme enregistrés.")
+    } finally {
+      setSaving(false)
     }
-    setSaved(true)
   }
 
 

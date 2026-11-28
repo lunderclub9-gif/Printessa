@@ -13,37 +13,35 @@ export default function HomePage() {
   const loadProducts = useCallback(async () => {
     setLoading(true)
     setFailed(false)
+    try {
+      const featuredQuery = supabase
+        .from('products')
+        .select('*, category:categories(*), product_images(*), product_options(id, values:product_option_values(is_active)), product_variants(stock_quantity,made_to_order,is_active)')
+        .eq('status', 'published')
+        .eq('is_featured', true)
+        .order('created_at', { ascending: false })
+        .limit(4)
 
-    const featuredQuery = supabase
-      .from('products')
-      .select('*, category:categories(*), product_images(*)')
-      .eq('status', 'published')
-      .eq('is_featured', true)
-      .order('created_at', { ascending: false })
-      .limit(4)
+      const recentQuery = supabase
+        .from('products')
+        .select('*, category:categories(*), product_images(*), product_options(id, values:product_option_values(is_active)), product_variants(stock_quantity,made_to_order,is_active)')
+        .eq('status', 'published')
+        .order('created_at', { ascending: false })
+        .limit(8)
 
-    const recentQuery = supabase
-      .from('products')
-      .select('*, category:categories(*), product_images(*)')
-      .eq('status', 'published')
-      .order('created_at', { ascending: false })
-      .limit(8)
+      const [featuredResult, recentResult] = await Promise.all([featuredQuery, recentQuery])
+      if (featuredResult.error || recentResult.error) throw featuredResult.error || recentResult.error
 
-    const [featuredResult, recentResult] = await Promise.all([featuredQuery, recentQuery])
-
-    // Une erreur réseau ou RLS ne doit jamais ressembler à un catalogue vide.
-    if (featuredResult.error || recentResult.error) {
-      console.error('[LUNDER] chargement du catalogue impossible')
+      setFeatured((featuredResult.data as Product[]) ?? [])
+      setRecent((recentResult.data as Product[]) ?? [])
+    } catch {
+      // Une erreur réseau ou RLS ne doit jamais ressembler à un catalogue vide.
       setFeatured([])
       setRecent([])
       setFailed(true)
+    } finally {
       setLoading(false)
-      return
     }
-
-    setFeatured((featuredResult.data as Product[]) ?? [])
-    setRecent((recentResult.data as Product[]) ?? [])
-    setLoading(false)
   }, [])
 
   useEffect(() => {

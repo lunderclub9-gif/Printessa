@@ -74,11 +74,41 @@ export async function validateImage(file: File): Promise<MediaCheck> {
   return { ok: true, ...detected }
 }
 
+/** A glTF 2.0 document must be a JSON object with its required asset.version. */
+export function isValidGltfDocument(document: unknown): boolean {
+  if (!document || typeof document !== 'object' || Array.isArray(document)) return false
+  const asset = (document as Record<string, unknown>).asset
+  if (!asset || typeof asset !== 'object' || Array.isArray(asset)) return false
+  return (asset as Record<string, unknown>).version === '2.0'
+}
+
+/**
+ * Checks the GLB v2 header and first JSON chunk before its payload is parsed.
+ * GLB header: magic, version, total length, then JSON chunk length and type.
+ */
+export function isValidGlbHeader(head: Uint8Array, fileSize: number): boolean {
+  if (head.length < 20 || fileSize < 20) return false
+  if (readAscii(head, 0, 4) !== 'glTF') return false
+
+  const view = new DataView(head.buffer, head.byteOffset, head.byteLength)
+  const version = view.getUint32(4, true)
+  const declaredLength = view.getUint32(8, true)
+  const jsonChunkLength = view.getUint32(12, true)
+  const jsonChunkType = view.getUint32(16, true)
+
+  return version === 2 &&
+    declaredLength === fileSize &&
+    jsonChunkType === 0x4e4f534a &&
+    jsonChunkLength >= 4 &&
+    jsonChunkLength % 4 === 0 &&
+    jsonChunkLength <= fileSize - 20
+}
+
 /**
  * Valide un modèle 3D.
- * - `.glb` : conteneur binaire autonome, signature « glTF ».
- * - `.gltf` : JSON accepté seulement si toutes ses ressources sont intégrées
- *   (URI `data:`), sinon le fichier seul ne peut pas s'afficher.
+ * - .glb : conteneur binaire GLB 2.0 avec un premier chunk JSON glTF valide.
+ * - .gltf : JSON glTF 2.0 accepté seulement si toutes ses ressources sont intégrées
+ *   (URI data:), sinon le fichier seul ne peut pas s'afficher.
  */
 export async function validateModel(file: File): Promise<MediaCheck> {
   if (file.size === 0) {
@@ -91,9 +121,25 @@ export async function validateModel(file: File): Promise<MediaCheck> {
   const extension = file.name.split('.').pop()?.toLowerCase() ?? ''
 
   if (extension === 'glb') {
-    const head = await readHead(file, 4)
-    if (readAscii(head, 0, 4) !== 'glTF') {
-      return { ok: false, message: `« ${file.name} » n'est pas un fichier GLB valide.` }
+    const head = await readHead(file, 20)
+    if (!isValidGlbHeader(head, file.size)) {
+      return { ok: false, message: `« ${file.name} » n'est pas un fichier GLB 2.0 valide ou est incomplet.` }
+    }
+
+    const view = new DataView(head.buffer, head.byteOffset, head.byteLength)
+    const jsonLength = view.getUint32(12, true)
+    let document: unknown
+    try {
+      document = JSON.parse(await file.slice(20, 20 + jsonLength).text())
+    } catch {
+      return { ok: false, message: `« ${file.name} » contient un document glTF illisible.` }
+    }
+    if (!isValidGltfDocument(document)) {
+      return { ok: false, message: `« ${file.name} » ne contient pas un document glTF 2.0 valide.` }
+    }
+    const external = findExternalUris(document)
+    if (external.length > 0) {
+      return { ok: false, message: `« ${file.name} » référence des fichiers externes. Intégrez les ressources dans le GLB avant de l'envoyer.` }
     }
     return { ok: true, contentType: 'model/gltf-binary', extension: 'glb' }
   }
@@ -104,6 +150,10 @@ export async function validateModel(file: File): Promise<MediaCheck> {
       parsed = JSON.parse(await file.text())
     } catch {
       return { ok: false, message: `« ${file.name} » n'est pas un fichier glTF valide (JSON illisible).` }
+    }
+
+    if (!isValidGltfDocument(parsed)) {
+      return { ok: false, message: `« ${file.name} » ne contient pas un document glTF 2.0 valide.` }
     }
 
     const external = findExternalUris(parsed)
@@ -198,4 +248,20 @@ function findExternalUris(document: unknown): string[] {
 
   visit(document)
   return found
+}
+
+
+/** Extracts an object path from a public Supabase Storage URL for a known bucket. */
+export function storageObjectPath(
+  url: string,
+  bucket: 'product-images' | 'product-models'
+): string | null {
+  try {
+    const parsed = new URL(url)
+    const marker = `/${bucket}/`
+    const index = parsed.pathname.indexOf(marker)
+    return index >= 0 ? decodeURIComponent(parsed.pathname.slice(index + marker.length)) : null
+  } catch {
+    return null
+  }
 }

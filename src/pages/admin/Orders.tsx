@@ -78,22 +78,27 @@ export default function AdminOrders() {
   const load = useCallback(async (term: string) => {
     const sequence = ++requestSequence.current
     setLoading(true)
-    let query = supabase
-      .from('orders')
-      .select('*, order_items(*)')
-      .order('created_at', { ascending: false })
-      .limit(200)
-    const expression = buildOrderSearchExpression(term)
-    if (expression) query = query.or(expression)
-    const { data, error: queryError } = await query
-    if (sequence !== requestSequence.current) return
-    if (queryError) {
-      setError('Impossible de charger les commandes.')
-    } else {
-      setError(null)
-      setOrders((data as OrderRow[]) ?? [])
+    try {
+      let query = supabase
+        .from('orders')
+        .select('*, order_items(*)')
+        .order('created_at', { ascending: false })
+        .limit(200)
+      const expression = buildOrderSearchExpression(term)
+      if (expression) query = query.or(expression)
+      const { data, error: queryError } = await query
+      if (sequence !== requestSequence.current) return
+      if (queryError) {
+        setError('Impossible de charger les commandes.')
+      } else {
+        setError(null)
+        setOrders((data as OrderRow[]) ?? [])
+      }
+    } catch {
+      if (sequence === requestSequence.current) setError('Connexion interrompue pendant le chargement des commandes.')
+    } finally {
+      if (sequence === requestSequence.current) setLoading(false)
     }
-    setLoading(false)
   }, [])
 
   useEffect(() => {
@@ -111,12 +116,13 @@ export default function AdminOrders() {
       return
     }
 
-    void supabase
-      .from('orders')
-      .select('*, order_items(*)')
-      .eq('id', requestedOrderId)
-      .maybeSingle()
-      .then(({ data, error: targetError }) => {
+    const loadRequestedOrder = async () => {
+      try {
+        const { data, error: targetError } = await supabase
+          .from('orders')
+          .select('*, order_items(*)')
+          .eq('id', requestedOrderId)
+          .maybeSingle()
         if (new URLSearchParams(window.location.search).get('order') !== requestedOrderId) return
         if (targetError || !data) {
           setError('La commande liée à cette notification est introuvable ou n’est plus accessible.')
@@ -125,39 +131,55 @@ export default function AdminOrders() {
         const target = data as OrderRow
         setOrders((current) => [target, ...current.filter((item) => item.id !== target.id)])
         setExpanded(target.id)
-      })
+      } catch {
+        if (new URLSearchParams(window.location.search).get('order') === requestedOrderId) {
+          setError('Connexion interrompue. Impossible de charger la commande liée à cette notification.')
+        }
+      }
+    }
+    void loadRequestedOrder()
   }, [loading, orders, requestedOrderId])
 
   const changeStatus = async (orderId: string, status: string) => {
     setBusy(true)
     setError(null)
-    const { error: rpcError } = await supabase.rpc('set_order_status', {
-      p_order_id: orderId,
-      p_status: status,
-    })
-    setBusy(false)
-    if (rpcError) {
-      setError(orderErrorMessage(rpcError.message, 'Impossible de modifier le statut.'))
-      return
+    try {
+      const { error: rpcError } = await supabase.rpc('set_order_status', {
+        p_order_id: orderId,
+        p_status: status,
+      })
+      if (rpcError) {
+        setError(orderErrorMessage(rpcError.message, 'Impossible de modifier le statut.'))
+        return
+      }
+      await load(searchText)
+    } catch {
+      setError('Connexion interrompue. Le statut de la commande doit être vérifié avant de réessayer.')
+    } finally {
+      setBusy(false)
     }
-    await load(searchText)
   }
 
   const handleDelete = async (order: OrderRow) => {
     setDeleteError(null)
     if (!(await confirmAction({ title: 'Archiver cette commande ?', description: `La commande ${order.order_number} restera consultable dans les archives.`, confirmLabel: 'Archiver', tone: 'danger' }))) return
     setDeletingId(order.id)
-    const { error: rpcError } = await supabase.rpc('delete_order', {
-      p_order_id: order.id,
-      p_reason: 'Suppression demandée depuis l\'interface',
-    })
-    setDeletingId(null)
-    if (rpcError) {
-      setDeleteError(orderErrorMessage(rpcError.message, 'Impossible d\'archiver cette commande.'))
-      return
+    try {
+      const { error: rpcError } = await supabase.rpc('delete_order', {
+        p_order_id: order.id,
+        p_reason: 'Suppression demandée depuis l\'interface',
+      })
+      if (rpcError) {
+        setDeleteError(orderErrorMessage(rpcError.message, 'Impossible d\'archiver cette commande.'))
+        return
+      }
+      setDeleteError(null)
+      await load(searchText)
+    } catch {
+      setDeleteError('Connexion interrompue. Vérifiez si la commande a été archivée avant de réessayer.')
+    } finally {
+      setDeletingId(null)
     }
-    setDeleteError(null)
-    await load(searchText)
   }
 
   const hardDelete = async (order: OrderRow) => {
@@ -166,18 +188,23 @@ export default function AdminOrders() {
       return
     }
     setDeletingId(order.id)
-    const { error: rpcError } = await supabase.rpc('delete_delivered_order', {
-      p_order_id: order.id,
-      p_reason: 'Suppression définitive demandée depuis l\'interface propriétaire',
-    })
-    setDeletingId(null)
-    if (rpcError) {
-      setDeleteError(
-        orderErrorMessage(rpcError.message, 'Impossible de supprimer définitivement cette commande.')
-      )
-      return
+    try {
+      const { error: rpcError } = await supabase.rpc('delete_delivered_order', {
+        p_order_id: order.id,
+        p_reason: 'Suppression définitive demandée depuis l\'interface propriétaire',
+      })
+      if (rpcError) {
+        setDeleteError(
+          orderErrorMessage(rpcError.message, 'Impossible de supprimer définitivement cette commande.')
+        )
+        return
+      }
+      await load(searchText)
+    } catch {
+      setDeleteError('Connexion interrompue. Vérifiez le résultat de la suppression avant de réessayer.')
+    } finally {
+      setDeletingId(null)
     }
-    await load(searchText)
   }
 
   const visible = (filter ? orders.filter((order) => order.status === filter) : orders).filter(

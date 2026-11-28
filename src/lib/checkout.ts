@@ -21,6 +21,20 @@ export const DELIVERY_METHOD_LABELS: Record<string, string> = {
   stopdesk: 'Point relais / Stop Desk',
 }
 
+export function buildOrderNote(
+  customerNote: string,
+  items: { name: string; selectedColor?: string | null }[]
+): string | null {
+  const colorNotes = items
+    .filter((item) => item.selectedColor)
+    .map((item) => `- ${item.name} : ${item.selectedColor}`)
+  const note = [
+    customerNote.trim(),
+    colorNotes.length ? `Couleurs sélectionnées :\n${colorNotes.join('\n')}` : '',
+  ].filter(Boolean).join('\n\n')
+  return note || null
+}
+
 /** Normalise un numéro algérien vers 0X XX XX XX XX. */
 export function normalizeAlgerianPhone(input: string): string | null {
   let digits = input.replace(/\D/g, '')

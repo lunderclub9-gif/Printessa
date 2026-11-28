@@ -26,14 +26,26 @@ export default function OrderConfirmationPage() {
       setLoading(false)
       return
     }
-    supabase.rpc('get_order_by_token', { p_token: token }).then(({ data, error: rpcError }) => {
-      if (rpcError || !data) {
-        setError(orderErrorMessage(rpcError?.message, 'Commande introuvable.'))
-      } else {
-        setOrder(data as OrderDetail)
+    let cancelled = false
+    supabase.rpc('get_order_by_token', { p_token: token }).then(
+      ({ data, error: rpcError }) => {
+        if (cancelled) return
+        if (rpcError || !data) {
+          setError(orderErrorMessage(rpcError?.message, 'Commande introuvable.'))
+        } else {
+          setOrder(data as OrderDetail)
+        }
+        setLoading(false)
+      },
+      () => {
+        if (cancelled) return
+        setError('Connexion interrompue. Rechargez la page pour vérifier votre commande.')
+        setLoading(false)
       }
-      setLoading(false)
-    })
+    )
+    return () => {
+      cancelled = true
+    }
   }, [token])
 
   useEffect(() => {
@@ -158,6 +170,12 @@ export default function OrderConfirmationPage() {
           {order.address && <p className="mt-1 text-sm text-charcoal-300">{order.address}</p>}
           {order.pickup_point && (
             <p className="mt-1 text-sm text-charcoal-300">Point relais : {order.pickup_point}</p>
+          )}
+          {order.note && (
+            <div className="mt-3 rounded-lg border border-charcoal-400/15 bg-charcoal-900/50 p-3">
+              <p className="text-xs font-semibold text-charcoal-300">Note et options de commande</p>
+              <p className="mt-1 whitespace-pre-line text-sm text-charcoal-200">{order.note}</p>
+            </div>
           )}
           {order.delivery_carrier && (
             <p className="mt-1 text-xs text-charcoal-400">Transporteur : {order.delivery_carrier}</p>

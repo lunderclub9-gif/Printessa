@@ -57,23 +57,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const loadProfile = async (currentSession: Session) => {
       const current = ++requestId.current
 
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', currentSession.user.id)
-        .maybeSingle()
+      let data: Profile | null = null
+      let queryError: { code?: string } | null = null
+      try {
+        const result = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', currentSession.user.id)
+          .maybeSingle()
+        data = result.data as Profile | null
+        queryError = result.error
+      } catch {
+        // A rejected fetch must not leave the auth gate loading forever.
+        queryError = { code: 'NETWORK_ERROR' }
+      }
 
       if (cancelled || current !== requestId.current) return
 
-      if (error) {
-        console.error('[LUNDER] profil indisponible', error.code ?? 'erreur inconnue')
+      if (queryError) {
+        console.error('[LUNDER] profil indisponible', queryError.code ?? 'erreur inconnue')
         setProfile(null)
         setProfileUnavailable(true)
         setLoading(false)
         return
       }
 
-      const currentProfile = data as Profile | null
+      const currentProfile = data
       setProfile(currentProfile)
       setProfileUnavailable(!currentProfile)
       identifyUser(currentSession, currentProfile)

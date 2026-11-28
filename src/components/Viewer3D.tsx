@@ -39,6 +39,7 @@ export default function Viewer3D({ src, poster, alt }: Props) {
   const [inView, setInView] = useState(false)
   const [elementReady, setElementReady] = useState(false)
   const [modelStatus, setModelStatus] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [retryCount, setRetryCount] = useState(0)
   const [fullscreen, setFullscreen] = useState(false)
 
   // 1. On ne télécharge ni la librairie ni le modèle avant que la visionneuse
@@ -63,6 +64,10 @@ export default function Viewer3D({ src, poster, alt }: Props) {
     return () => observer.disconnect()
   }, [])
 
+  useEffect(() => {
+    setModelStatus('loading')
+  }, [src])
+
   // 2. Chargement paresseux de @google/model-viewer (~1 Mo) dans son propre chunk.
   useEffect(() => {
     if (!inView || elementReady) return
@@ -77,7 +82,7 @@ export default function Viewer3D({ src, poster, alt }: Props) {
     return () => {
       cancelled = true
     }
-  }, [inView, elementReady])
+  }, [inView, elementReady, retryCount])
 
   // 3. React 18 ne branche pas onLoad/onError sur un élément personnalisé :
   //    les écouteurs natifs sont donc attachés à la main.
@@ -92,7 +97,7 @@ export default function Viewer3D({ src, poster, alt }: Props) {
       viewer.removeEventListener('load', handleLoad)
       viewer.removeEventListener('error', handleError)
     }
-  }, [elementReady])
+  }, [elementReady, src, retryCount])
 
   // 4. Échap quitte le plein écran.
   useEffect(() => {
@@ -115,12 +120,12 @@ export default function Viewer3D({ src, poster, alt }: Props) {
 
   if (modelStatus === 'error') {
     return (
-      <div className="flex aspect-square items-center justify-center rounded-xl border border-charcoal-400/15 bg-charcoal-800">
+      <div className="relative flex aspect-square items-center justify-center rounded-xl border border-charcoal-400/15 bg-charcoal-800">
         {poster ? (
           <img
             src={poster}
             alt={alt ?? 'Aperçu du produit'}
-            className="h-full w-full rounded-xl object-cover"
+            className="h-full w-full rounded-xl object-contain"
           />
         ) : (
           <div className="text-center">
@@ -128,6 +133,17 @@ export default function Viewer3D({ src, poster, alt }: Props) {
             <p className="text-sm text-charcoal-400">Modèle 3D indisponible</p>
           </div>
         )}
+        <button
+          type="button"
+          onClick={() => {
+            setModelStatus('loading')
+            setElementReady(false)
+            setRetryCount((value) => value + 1)
+          }}
+          className="absolute bottom-3 right-3 rounded-lg bg-charcoal-900/90 px-3 py-2 text-xs font-medium text-offwhite"
+        >
+          Réessayer la vue 3D
+        </button>
       </div>
     )
   }
@@ -148,6 +164,7 @@ export default function Viewer3D({ src, poster, alt }: Props) {
 
       {inView && (
         <ModelViewer
+          key={`${src}:${retryCount}`}
           ref={(node: HTMLElement | null) => {
             viewerRef.current = node as ModelViewerElement | null
           }}

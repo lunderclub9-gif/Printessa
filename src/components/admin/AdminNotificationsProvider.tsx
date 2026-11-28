@@ -53,12 +53,15 @@ export function AdminNotificationsProvider({
   const [error, setError] = useState<string | null>(null)
   const [realtimeAvailable, setRealtimeAvailable] = useState<boolean | null>(null)
   const knownIds = useRef(new Set<string>())
+  const loadSequence = useRef(0)
 
   useEffect(() => {
     setPreferences(readAdminPreferences(ownerId))
     setNotifications([])
     setUnreadCount(0)
     knownIds.current.clear()
+    loadSequence.current += 1
+    setError(null)
     setLoading(Boolean(ownerId))
   }, [ownerId])
 
@@ -111,6 +114,7 @@ export function AdminNotificationsProvider({
         setLoading(false)
         return
       }
+      const requestId = ++loadSequence.current
       const shouldLoadEvents =
         (preferences.inAppNotifications || preferences.browserNotifications || preferences.soundNotifications) &&
         enabledTypes.length > 0
@@ -133,7 +137,18 @@ export function AdminNotificationsProvider({
             .is('read_at', null)
         : Promise.resolve({ count: 0, error: null })
 
-      const [listResult, countResult] = await Promise.all([listQuery, countQuery])
+      let listResult: Awaited<typeof listQuery>
+      let countResult: Awaited<typeof countQuery>
+      try {
+        ;[listResult, countResult] = await Promise.all([listQuery, countQuery])
+      } catch {
+        if (requestId === loadSequence.current) {
+          setError('Connexion interrompue pendant le chargement des notifications.')
+          setLoading(false)
+        }
+        return
+      }
+      if (requestId !== loadSequence.current) return
       if (listResult.error || countResult.error) {
         setError('Impossible de charger les notifications. Vérifiez la connexion et vos droits.')
         setLoading(false)
@@ -228,14 +243,23 @@ export function AdminNotificationsProvider({
   const markRead = useCallback(
     async (notificationId: string) => {
       if (!ownerId) return false
-      const { data, error: updateError } = await supabase
-        .from('owner_notifications')
-        .update({ read_at: new Date().toISOString() })
-        .eq('owner_id', ownerId)
-        .eq('id', notificationId)
-        .is('read_at', null)
-        .select('id')
-        .maybeSingle()
+      let data: { id: string } | null = null
+      let updateError: { message: string } | null = null
+      try {
+        const result = await supabase
+          .from('owner_notifications')
+          .update({ read_at: new Date().toISOString() })
+          .eq('owner_id', ownerId)
+          .eq('id', notificationId)
+          .is('read_at', null)
+          .select('id')
+          .maybeSingle()
+        data = result.data
+        updateError = result.error
+      } catch {
+        setError('Connexion interrompue. Impossible de confirmer la lecture de cette notification.')
+        return false
+      }
       if (updateError) {
         setError('Impossible de marquer cette notification comme lue.')
         return false
@@ -253,12 +277,19 @@ export function AdminNotificationsProvider({
 
   const markAllRead = useCallback(async () => {
     if (!ownerId || enabledTypes.length === 0) return true
-    const { error: updateError } = await supabase
-      .from('owner_notifications')
-      .update({ read_at: new Date().toISOString() })
-      .eq('owner_id', ownerId)
-      .in('event_type', enabledTypes)
-      .is('read_at', null)
+    let updateError: { message: string } | null = null
+    try {
+      const result = await supabase
+        .from('owner_notifications')
+        .update({ read_at: new Date().toISOString() })
+        .eq('owner_id', ownerId)
+        .in('event_type', enabledTypes)
+        .is('read_at', null)
+      updateError = result.error
+    } catch {
+      setError('Connexion interrompue. Impossible de confirmer la lecture des notifications.')
+      return false
+    }
     if (updateError) {
       setError('Impossible de marquer toutes les notifications comme lues.')
       return false

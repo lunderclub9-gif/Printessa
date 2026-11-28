@@ -46,6 +46,12 @@ export default function CustomRequestPage() {
   const [rush, setRush] = useState(false)
 
   const [materials, setMaterials] = useState<Material[]>([])
+  const [initialDataLoading, setInitialDataLoading] = useState(true)
+  const [initialDataError, setInitialDataError] = useState<string | null>(null)
+  const [initialDataRetry, setInitialDataRetry] = useState(0)
+  const [destinationLoading, setDestinationLoading] = useState(false)
+  const [destinationError, setDestinationError] = useState<string | null>(null)
+  const [destinationRetry, setDestinationRetry] = useState(0)
   const [estimate, setEstimate] = useState<Estimate | null>(null)
   const [estimateError, setEstimateError] = useState<string | null>(null)
   const [estimateLoading, setEstimateLoading] = useState(false)
@@ -74,57 +80,101 @@ export default function CustomRequestPage() {
     typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}`
   )
   const uploadLock = useRef(false)
-  const idempotencyKey = useRef<string>(crypto.randomUUID())
+  const estimateRequestSequence = useRef(0)
+  const idempotencyKey = useRef<string>(
+    typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+  )
 
   useEffect(() => {
     let active = true
-    supabase
-      .from('manufacturing_materials_public')
-      .select('name, colors')
-      .order('name')
-      .then(({ data }) => {
+    const loadInitialData = async () => {
+      setInitialDataLoading(true)
+      setInitialDataError(null)
+      try {
+        const [materialsResult, wilayasResult] = await Promise.all([
+          supabase.from('manufacturing_materials_public').select('name, colors').order('name'),
+          supabase.from('wilayas').select('code, name_fr').eq('is_active', true).order('code'),
+        ])
         if (!active) return
-        const mats = (data ?? []).map((m: Record<string, unknown>) => ({
-          name: String(m.name),
-          colors: (m.colors as string[]) ?? [],
-        }))
-        setMaterials(mats)
-        if (mats.length > 0) setMaterial((current) => current || mats[0].name)
-      })
-    supabase
-      .from('wilayas')
-      .select('code, name_fr')
-      .eq('is_active', true)
-      .order('code')
-      .then(({ data }) => {
-        if (active) setWilayas((data as Wilaya[]) ?? [])
-      })
+        if (materialsResult.error) {
+          setMaterials([])
+          setInitialDataError('Le catalogue des matières est indisponible. Vous pouvez toujours envoyer une demande manuelle sans estimation.')
+        } else {
+          const mats = (materialsResult.data ?? []).map((m: Record<string, unknown>) => ({
+            name: String(m.name),
+            colors: (m.colors as string[]) ?? [],
+          }))
+          setMaterials(mats)
+          if (mats.length > 0) setMaterial((current) => current || mats[0].name)
+        }
+        if (wilayasResult.error) {
+          setWilayas([])
+          setInitialDataError('Impossible de charger les wilayas. Réessayez avant de remplir la livraison.')
+        } else {
+          setWilayas((wilayasResult.data as Wilaya[]) ?? [])
+        }
+      } catch {
+        if (active) {
+          setInitialDataError('Connexion interrompue pendant le chargement des informations. Réessayez.')
+          setMaterials([])
+          setWilayas([])
+        }
+      } finally {
+        if (active) setInitialDataLoading(false)
+      }
+    }
+    void loadInitialData()
     return () => {
       active = false
     }
-  }, [])
+  }, [initialDataRetry])
 
   useEffect(() => {
     setCommuneId('')
     setPickupPoints([])
     setPickupId('')
-    if (!wilayaCode) return
-    supabase
-      .from('communes')
-      .select('id, name_fr')
-      .eq('wilaya_code', Number(wilayaCode))
-      .eq('is_active', true)
-      .order('name_fr')
-      .then(({ data }) => setCommunes((data as Commune[]) ?? []))
-    supabase
-      .from('pickup_points')
-      .select('id, name, address')
-      .eq('wilaya_code', Number(wilayaCode))
-      .eq('is_active', true)
-      .then(({ data }) => setPickupPoints((data as PickupPoint[]) ?? []))
-  }, [wilayaCode])
+    setDestinationError(null)
+    if (!wilayaCode) {
+      setCommunes([])
+      setDestinationLoading(false)
+      return
+    }
+    let cancelled = false
+    const loadDestinationData = async () => {
+      setDestinationLoading(true)
+      try {
+        const [communesResult, pickupResult] = await Promise.all([
+          supabase.from('communes').select('id, name_fr').eq('wilaya_code', Number(wilayaCode)).eq('is_active', true).order('name_fr'),
+          supabase.from('pickup_points').select('id, name, address').eq('wilaya_code', Number(wilayaCode)).eq('is_active', true),
+        ])
+        if (cancelled) return
+        setCommunes(communesResult.error ? [] : (communesResult.data as Commune[]) ?? [])
+        setPickupPoints(pickupResult.error ? [] : (pickupResult.data as PickupPoint[]) ?? [])
+        if (communesResult.error) {
+          setDestinationError('Impossible de charger les communes de cette wilaya. Réessayez.')
+        } else if (pickupResult.error) {
+          setDestinationError('Impossible de charger les points relais de cette wilaya. Réessayez.')
+        }
+      } catch {
+        if (!cancelled) {
+          setCommunes([])
+          setPickupPoints([])
+          setDestinationError('Connexion interrompue pendant le chargement de la destination. Réessayez.')
+        }
+      } finally {
+        if (!cancelled) setDestinationLoading(false)
+      }
+    }
+    void loadDestinationData()
+    return () => {
+      cancelled = true
+    }
+  }, [wilayaCode, destinationRetry])
 
   const runEstimate = useCallback(async () => {
+    const requestId = ++estimateRequestSequence.current
     const l = Number(lengthMm)
     const w = Number(widthMm)
     const h = Number(heightMm)
@@ -132,43 +182,56 @@ export default function CustomRequestPage() {
     if (!material || !Number.isFinite(l) || l <= 0 || !Number.isFinite(w) || w <= 0 || !Number.isFinite(h) || h <= 0) {
       setEstimate(null)
       setEstimateError(null)
+      setEstimateLoading(false)
       return
     }
+
     setEstimateLoading(true)
     setEstimateError(null)
-    const { data, error: rpcError } = await supabase.rpc('estimate_manufacturing_dimensions', {
-      p_length_mm: l,
-      p_width_mm: w,
-      p_height_mm: h,
-      p_material_name: material,
-      p_quantity: qty,
-      p_options: options,
-      p_rush: rush,
-    })
-    setEstimateLoading(false)
-    if (rpcError || !data) {
+    try {
+      const { data, error: rpcError } = await supabase.rpc('estimate_manufacturing_dimensions', {
+        p_length_mm: l,
+        p_width_mm: w,
+        p_height_mm: h,
+        p_material_name: material,
+        p_quantity: qty,
+        p_options: options,
+        p_rush: rush,
+      })
+      if (requestId !== estimateRequestSequence.current) return
+      setEstimateLoading(false)
+      if (rpcError || !data) {
+        setEstimate(null)
+        setEstimateError(orderErrorMessage(rpcError?.message, 'Estimation impossible pour ces dimensions.'))
+        return
+      }
+      const d = data as Record<string, unknown>
+      setEstimate({
+        lines: (d.lines as Estimate['lines']) ?? [],
+        totalDzd: Number(d.totalDzd ?? 0),
+        quantity: Number(d.quantity ?? qty),
+        discountPercent: Number(d.discountPercent ?? 0),
+        discountDzd: Number(d.discountDzd ?? 0),
+        rushFeeDzd: Number(d.rushFeeDzd ?? 0),
+        assumptions: (d.assumptions as string[]) ?? [],
+        estimates: d.estimates as Estimate['estimates'],
+      })
+    } catch {
+      if (requestId !== estimateRequestSequence.current) return
+      setEstimateLoading(false)
       setEstimate(null)
-      setEstimateError(orderErrorMessage(rpcError?.message, 'Estimation impossible pour ces dimensions.'))
-      return
+      setEstimateError('Connexion interrompue pendant le calcul. Vérifiez votre connexion puis réessayez.')
     }
-    const d = data as Record<string, unknown>
-    setEstimate({
-      lines: (d.lines as Estimate['lines']) ?? [],
-      totalDzd: Number(d.totalDzd ?? 0),
-      quantity: Number(d.quantity ?? qty),
-      discountPercent: Number(d.discountPercent ?? 0),
-      discountDzd: Number(d.discountDzd ?? 0),
-      rushFeeDzd: Number(d.rushFeeDzd ?? 0),
-      assumptions: (d.assumptions as string[]) ?? [],
-      estimates: d.estimates as Estimate['estimates'],
-    })
   }, [lengthMm, widthMm, heightMm, material, quantity, options, rush])
 
   useEffect(() => {
     const timer = setTimeout(() => {
       void runEstimate()
     }, 450)
-    return () => clearTimeout(timer)
+    return () => {
+      clearTimeout(timer)
+      estimateRequestSequence.current += 1
+    }
   }, [runEstimate])
 
   // Toute modification des paramètres invalide l'acceptation précédente : le
@@ -225,12 +288,16 @@ export default function CustomRequestPage() {
   const removeFile = async (path: string) => {
     if (uploadLock.current) return
     setError(null)
-    const { error: removeError } = await supabase.storage.from('custom-requests').remove([path])
-    if (removeError) {
-      setError('Impossible de supprimer ce fichier du stockage privé. Réessayez avant d’envoyer la demande.')
-      return
+    try {
+      const { error: removeError } = await supabase.storage.from('custom-requests').remove([path])
+      if (removeError) {
+        setError('Impossible de supprimer ce fichier du stockage privé. Réessayez avant d’envoyer la demande.')
+        return
+      }
+      setFiles((current) => current.filter((file) => file.path !== path))
+    } catch {
+      setError('Connexion interrompue pendant la suppression du fichier. Il reste attaché à la demande ; vérifiez puis réessayez.')
     }
-    setFiles((current) => current.filter((file) => file.path !== path))
   }
 
   const handleSubmit = async (event: React.FormEvent) => {
@@ -273,6 +340,12 @@ export default function CustomRequestPage() {
       setError('Le descriptif ne doit pas dépasser 5 000 caractères.')
       return
     }
+    const requiredDestinationUnavailable =
+      destinationError?.includes('communes') || (method === 'stopdesk' && Boolean(destinationError))
+    if (initialDataLoading || destinationLoading || initialDataError?.includes('wilayas') || requiredDestinationUnavailable) {
+      setError('Attendez le chargement des informations de livraison ou utilisez Réessayer.')
+      return
+    }
     if (!wilayaCode || !communeId) {
       setError('Sélectionnez votre wilaya et votre commune.')
       return
@@ -287,54 +360,65 @@ export default function CustomRequestPage() {
     }
 
     setSubmitting(true)
-    const { data, error: rpcError } = await supabase.rpc('create_custom_request', {
-      p_payload: {
-        idempotency_key: idempotencyKey.current,
-        customer_name: name.trim(),
-        phone: normalized,
-        email: email.trim() || null,
-        title: title.trim(),
-        description: description.trim(),
-        intended_use: intendedUse.trim() || null,
-        dimensions: hasAllDimensions ? `${lengthMm} x ${widthMm} x ${heightMm}` : null,
-        dimension_unit: 'mm',
-        dim_length_mm: hasAllDimensions ? Number(lengthMm) : null,
-        dim_width_mm: hasAllDimensions ? Number(widthMm) : null,
-        dim_height_mm: hasAllDimensions ? Number(heightMm) : null,
-        material_preference: material || null,
-        color_preference: color.trim() || null,
-        quantity: Number(quantity) || 1,
-        manufacturing_options: options,
-        rush,
-        estimate_accepted: Boolean(estimate && estimateAccepted),
-        delivery: {
-          wilaya_code: Number(wilayaCode),
-          commune_id: communeId,
-          method,
-          address: method === 'domicile' ? address.trim() : null,
-          pickup_point_id: method === 'stopdesk' ? pickupId : null,
+    try {
+      const { data, error: rpcError } = await supabase.rpc('create_custom_request', {
+        p_payload: {
+          idempotency_key: idempotencyKey.current,
+          customer_name: name.trim(),
+          phone: normalized,
+          email: email.trim() || null,
+          title: title.trim(),
+          description: description.trim(),
+          intended_use: intendedUse.trim() || null,
+          dimensions: hasAllDimensions ? `${lengthMm} x ${widthMm} x ${heightMm}` : null,
+          dimension_unit: 'mm',
+          dim_length_mm: hasAllDimensions ? Number(lengthMm) : null,
+          dim_width_mm: hasAllDimensions ? Number(widthMm) : null,
+          dim_height_mm: hasAllDimensions ? Number(heightMm) : null,
+          material_preference: material || null,
+          color_preference: color.trim() || null,
+          quantity: Number(quantity) || 1,
+          manufacturing_options: options,
+          rush,
+          estimate_accepted: Boolean(estimate && estimateAccepted),
+          delivery: {
+            wilaya_code: Number(wilayaCode),
+            commune_id: communeId,
+            method,
+            address: method === 'domicile' ? address.trim() : null,
+            pickup_point_id: method === 'stopdesk' ? pickupId : null,
+          },
+          files: files.map((file) => ({
+            path: file.path,
+            name: file.name,
+            mime: file.mime,
+            size: file.size,
+            kind: file.kind,
+          })),
         },
-        files: files.map((file) => ({
-          path: file.path,
-          name: file.name,
-          mime: file.mime,
-          size: file.size,
-          kind: file.kind,
-        })),
-      },
-    })
-    setSubmitting(false)
+      })
 
-    if (rpcError) {
-      setError(
-        orderErrorMessage(
-          rpcError.message,
-          "La demande n'a pas pu être enregistrée. Vérifiez vos informations."
+      if (rpcError) {
+        setError(
+          orderErrorMessage(
+            rpcError.message,
+            "La demande n'a pas pu être enregistrée. Vérifiez vos informations."
+          )
         )
-      )
-      return
+        return
+      }
+
+      const result = data as CreatedRequest | null
+      if (!result?.request_number || !result.tracking_token) {
+        setError("La réponse du serveur est incomplète. Vos fichiers ont été conservés ; vérifiez le suivi avant de renvoyer la demande.")
+        return
+      }
+      setCreated(result)
+    } catch {
+      setError("Connexion interrompue pendant l'envoi. Vos fichiers ont été conservés ; vérifiez le suivi avant de renvoyer la demande.")
+    } finally {
+      setSubmitting(false)
     }
-    setCreated(data as CreatedRequest)
   }
 
   useEffect(() => {
@@ -385,6 +469,22 @@ export default function CustomRequestPage() {
         dimensions exactes : le studio l’étudiera et préparera un devis adapté avant fabrication.
       </p>
 
+      {initialDataError && (
+        <div role="alert" className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-brand-red/30 bg-brand-red/10 px-4 py-3 text-sm text-brand-red-light">
+          <span>{initialDataError}</span>
+          <button type="button" onClick={() => setInitialDataRetry((value) => value + 1)} className="btn-secondary">
+            Réessayer
+          </button>
+        </div>
+      )}
+      {destinationError && (
+        <div role="alert" className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-brand-red/30 bg-brand-red/10 px-4 py-3 text-sm text-brand-red-light">
+          <span>{destinationError}</span>
+          <button type="button" onClick={() => setDestinationRetry((value) => value + 1)} className="btn-secondary">
+            Réessayer
+          </button>
+        </div>
+      )}
       {error && (
         <div className="mt-4 flex items-start gap-2 rounded-lg border border-brand-red/30 bg-brand-red/10 px-4 py-3 text-sm text-brand-red-light">
           <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
@@ -550,7 +650,14 @@ export default function CustomRequestPage() {
             devis ferme : le propriétaire vérifie la faisabilité et peut ajuster le prix.
           </p>
           {estimateLoading && <p className="text-xs text-charcoal-300">Calcul de l’estimation…</p>}
-          {estimateError && <p className="text-xs text-brand-red-light">{estimateError}</p>}
+          {estimateError && (
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-xs text-brand-red-light">{estimateError}</p>
+              <button type="button" onClick={() => void runEstimate()} disabled={estimateLoading} className="btn-secondary">
+                Réessayer
+              </button>
+            </div>
+          )}
           {estimate ? (
             <div className="rounded-lg border border-charcoal-400/15 p-3">
               <ul className="space-y-1 text-sm">
@@ -669,7 +776,7 @@ export default function CustomRequestPage() {
           )}
         </div>
 
-        {estimateAccepted && (
+        {(!estimate || estimateAccepted) && (
           <>
             <div className="admin-card">
               <h2 className="mb-4 text-lg font-semibold text-offwhite">Vos coordonnées</h2>
@@ -736,9 +843,9 @@ export default function CustomRequestPage() {
                     value={communeId}
                     onChange={(event) => setCommuneId(event.target.value)}
                     className="input-field"
-                    disabled={!wilayaCode}
+                    disabled={!wilayaCode || destinationLoading}
                   >
-                    <option value="">Sélectionner...</option>
+                    <option value="">{destinationLoading ? 'Chargement des communes…' : 'Sélectionner...'}</option>
                     {communes.map((c) => (
                       <option key={c.id} value={c.id}>
                         {c.name_fr}
@@ -788,12 +895,14 @@ export default function CustomRequestPage() {
                     value={pickupId}
                     onChange={(event) => setPickupId(event.target.value)}
                     className="input-field"
-                    disabled={pickupPoints.length === 0}
+                    disabled={destinationLoading || pickupPoints.length === 0}
                   >
                     <option value="">
-                      {pickupPoints.length === 0
-                        ? 'Aucun point relais dans cette wilaya'
-                        : 'Sélectionner...'}
+                      {destinationLoading
+                        ? 'Chargement des points relais…'
+                        : pickupPoints.length === 0
+                          ? 'Aucun point relais dans cette wilaya'
+                          : 'Sélectionner...'}
                     </option>
                     {pickupPoints.map((point) => (
                       <option key={point.id} value={point.id}>

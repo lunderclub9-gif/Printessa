@@ -89,6 +89,8 @@ export type Product = {
   updated_at: string
   category?: Category | null
   product_images?: ProductImage[]
+  product_options?: { id: string; values?: { is_active: boolean }[] }[]
+  product_variants?: { stock_quantity: number; made_to_order: boolean | null; is_active: boolean }[]
 }
 
 export type ProductImage = {

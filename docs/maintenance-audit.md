@@ -144,6 +144,13 @@ or changing production data.
   preservation decision, the files were not renamed or rewritten; no migration deployment is safe
   until the conflict and remote history are reconciled.
 
+## Client backend isolation still required before delivery
+
+- The database audited is LUNDER's production Supabase project, not a verified Printessa backend.
+  The Printessa deployment environment was not inspected. Before launch, verify that the client
+  has a separate Supabase project, storage, keys and data; never deploy the client site with
+  LUNDER production credentials or customer/order data.
+
 ## Client rebranding still required before delivery
 
 - The repository is the separate Printessa client copy, but `index.html`, the storefront layout,

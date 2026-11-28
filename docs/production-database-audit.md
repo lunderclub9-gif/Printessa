@@ -305,6 +305,18 @@ REVOKE EXECUTE ON FUNCTION public.manufacturing_calculate_full(text, numeric, nu
 ALTER FUNCTION public.manufacturing_calculate_full(text, numeric, numeric, integer, jsonb, boolean)
   SET search_path = pg_catalog, public;
 
+-- Owner-only RPCs remain available to authenticated owners; anon has no reason to execute them.
+REVOKE EXECUTE ON FUNCTION public.create_custom_quote(uuid, integer, integer, date, text) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.create_custom_quote_from_estimate(uuid, text, date) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.delete_delivered_order(uuid, text) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.delete_order(uuid, text) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.log_owner_event(text, jsonb) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.owner_reject_custom_request(uuid, text) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.product_cost_estimate(uuid) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.quote_custom_manufacturing(uuid, text, numeric, numeric, jsonb, boolean) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.set_custom_request_status(uuid, text) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.set_order_status(uuid, text) FROM PUBLIC, anon;
+
 -- Sequence helper is called by create_guest_order() under its postgres owner context.
 REVOKE EXECUTE ON FUNCTION public.next_order_number()
   FROM PUBLIC, anon, authenticated;

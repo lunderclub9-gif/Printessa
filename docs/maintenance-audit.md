@@ -186,6 +186,10 @@ or changing production data.
   ID alone. Its client-side 10-file limit is bypassable; a read-only inventory found 10 unreferenced
   objects older than seven days. They were not deleted. The upload flow needs server-verifiable
   sessions/abuse controls and a safe orphan-retention policy before launch.
+- A live policy comparison also identified 11 provably redundant owner SELECT policies that
+  duplicate existing `FOR ALL` owner policies with the same role and predicate. They can be
+  removed in a forward migration after isolated RLS regression tests; no production policies were
+  changed.
 - Review the `manufacturing_materials_public` view and its security-invoker behavior against the
   intended public material catalogue before changing it.
 - Review missing FK indexes, RLS policy performance advisories and unused indexes against actual

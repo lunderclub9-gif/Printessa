@@ -278,6 +278,16 @@ redundant SELECT-only owner policy can be removed in that same tested forward mi
 the existing ALL policy already provides the identical owner SELECT predicate. Do not apply this
 to production during the audit.
 
+A separate privilege check found that `anon` and `authenticated` cannot CREATE objects in
+the `public` schema, but both have database TEMP privilege. Most live SECURITY DEFINER functions
+pin `search_path` to `public`; three have no pinned path. This is not by itself proof of a
+PostgREST exploit because the public REST API does not expose arbitrary SQL, but PostgreSQL can
+search a session's temporary schema before ordinary schemas for relation names when `pg_temp`
+is not explicitly placed last. For future SECURITY DEFINER hardening, prefer fully schema-qualified
+objects or a controlled path such as `pg_catalog, public, pg_temp`, and regression-test every
+function call path. Do not blanket-rewrite function paths without checking extensions and object
+resolution.
+
 The production advisor counts describe the live database snapshot and must not be assumed to match
 the repository migration set while migration history is unresolved.
 

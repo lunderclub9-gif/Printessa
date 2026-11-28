@@ -78,8 +78,8 @@ grants were changed during this audit.
 | Catalog visibility | RLS on `products`, `categories`, `product_images`, variant tables | public sees `published`/`active`; owner sees everything |
 | Order data | RLS on `orders`, `order_items`, `order_status_history` | owner only; **no anon grant at all** |
 | Custom request files | Storage bucket policies | private bucket, no anon `SELECT`, owner reads via 10-minute signed URLs |
-| Upload type and size | Storage bucket `allowed_mime_types` + `file_size_limit` | server-side, independent of the browser |
-| Upload content | browser sniffing (`src/lib/media.ts`) | convenience plus defence in depth — **not** a security boundary |
+| Declared MIME and per-object size | Storage bucket `allowed_mime_types` + `file_size_limit` | server enforces declared MIME/25 MiB cap, but MIME can be spoofed and there is no total quota/rate limit |
+| Upload content | browser sniffing (`src/lib/media.ts`) | client-side convenience only — **not** a security boundary; server-side content inspection is still required |
 | Prices, totals, shipping | `quote_delivery` + `create_guest_order` | nothing money-related is ever taken from the request body |
 | Stock | row locks in `create_guest_order` | the last unit cannot be oversold by concurrent checkouts |
 | Audit trail | `audit_log` with no write grant | append-only; only definer triggers can write |

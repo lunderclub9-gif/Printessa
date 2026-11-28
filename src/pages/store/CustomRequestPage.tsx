@@ -646,7 +646,14 @@ export default function CustomRequestPage() {
             devis ferme : le propriétaire vérifie la faisabilité et peut ajuster le prix.
           </p>
           {estimateLoading && <p className="text-xs text-charcoal-300">Calcul de l’estimation…</p>}
-          {estimateError && <p className="text-xs text-brand-red-light">{estimateError}</p>}
+          {estimateError && (
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-xs text-brand-red-light">{estimateError}</p>
+              <button type="button" onClick={() => void runEstimate()} disabled={estimateLoading} className="btn-secondary">
+                Réessayer
+              </button>
+            </div>
+          )}
           {estimate ? (
             <div className="rounded-lg border border-charcoal-400/15 p-3">
               <ul className="space-y-1 text-sm">

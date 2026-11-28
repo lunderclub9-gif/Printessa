@@ -45,8 +45,7 @@ export default function AdminLayout() {
         const { count, error } = await supabase
           .from('custom_requests')
           .select('*', { count: 'exact', head: true })
-          .in('status', ['new', 'reviewing'])
-          .not('estimate_accepted_at', 'is', null)
+.in('status', ['new', 'reviewing'])
         // Keep the last known badge when the network or RLS query fails.
         if (active && requestId === latestRequest && !error) {
           setNewRequests(count ?? 0)

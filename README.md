@@ -15,10 +15,15 @@ tests. This is a separate client copy based on the LUNDER starter; inherited LUN
 still present in the public UI and must be replaced with the client's approved brand kit before
 delivery. No SQL migration was applied or changed during this maintenance audit.
 
-The inspected production Supabase project has schema drift: its migration history contains two
-versions absent from this repository, while live schema checks show some later workflow objects
-present and several repository additions absent. Do not run `db push` or deploy this branch until
-the history and live schema are reconciled.
+The database inspected during maintenance is LUNDER's production Supabase project
+(`bavsrogbmfbalvpmbozc`), not a verified Printessa client backend. The Printessa Vercel/runtime
+environment was not inspected. Before delivery, verify a separate client Supabase project,
+storage, keys and data; never deploy the client storefront using LUNDER production credentials.
+
+The inspected production database has schema drift: its migration history contains two versions
+absent from this repository, while live schema checks show some later workflow objects present and
+several repository additions absent. Do not run `db push` or deploy this branch until the history
+and live schema are reconciled.
 
 ## Architecture and trust boundaries
 

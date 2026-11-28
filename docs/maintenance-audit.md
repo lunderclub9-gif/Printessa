@@ -182,6 +182,10 @@ or changing production data.
   grants and sequence privileges can be tightened in a tested forward migration without removing
   guest checkout. No production grants were changed. See
   `docs/production-database-audit.md` for the exact ACL evidence and safe remediation plan.
+- The private custom-request Storage bucket also permits unrestricted anonymous INSERTs by bucket
+  ID alone. Its client-side 10-file limit is bypassable; a read-only inventory found 10 unreferenced
+  objects older than seven days. They were not deleted. The upload flow needs server-verifiable
+  sessions/abuse controls and a safe orphan-retention policy before launch.
 - Review the `manufacturing_materials_public` view and its security-invoker behavior against the
   intended public material catalogue before changing it.
 - Review missing FK indexes, RLS policy performance advisories and unused indexes against actual

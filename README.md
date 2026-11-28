@@ -258,8 +258,9 @@ Open `/admin` manually — it is not linked from the storefront and must not be 
 
 ## Workflow fabrication sur mesure (011)
 
-1. Le client saisit le projet, les trois dimensions en millimètres, la quantité, la matière, la
-   couleur et les options. Il ne saisit jamais de poids ni d'heures d'impression.
+1. Le client décrit son projet et peut ajouter les dimensions en millimètres, la quantité, la
+   matière, la couleur et les options. Les dimensions et la matière sont facultatives pour une
+   demande manuelle. Il ne saisit jamais de poids ni d'heures d'impression.
 2. `estimate_manufacturing_dimensions` calcule un poids et un temps à partir du volume de la boîte
    englobante, du taux de remplissage (`effective_volume_percent`), de la densité de la matière
    (`density_g_cm3`) et de la vitesse d'impression (`print_speed_g_per_hour`). Le résultat est
@@ -311,6 +312,9 @@ pas supprimables par cette action.
   Storage API calls. The live bucket contains 10 unreferenced objects older than seven days; they
   were not deleted. Server-verifiable upload sessions, abuse controls and a cleanup grace period
   are required before launch.
+- The public storefront still inherits LUNDER name, copy and printer branding in several
+  components and SEO templates; replace these with the client's approved Printessa brand assets
+  and business content before delivery.
 - No license file is present; redistribution rights are unresolved.
 
 ## Migrations de fabrication sur mesure (008–012)

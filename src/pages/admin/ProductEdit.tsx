@@ -25,7 +25,8 @@ async function cleanupUnreferencedProductImage(
   if (!imagePath?.startsWith(`${productId}/`)) return 'outside-product'
 
   try {
-    const [variantResult, optionValueResult] = await Promise.all([
+    const [galleryResult, variantResult, optionValueResult] = await Promise.all([
+      supabase.from('product_images').select('id').eq('image_url', imageUrl).limit(1),
       supabase.from('product_variants').select('id').eq('image_url', imageUrl).limit(1),
       supabase.from('product_option_values').select('id').eq('image_url', imageUrl).limit(1),
     ])
@@ -33,8 +34,10 @@ async function cleanupUnreferencedProductImage(
       Boolean(error && /image_url.*does not exist|could not find.*image_url.*column/i.test(error.message))
     const variantLookupFailed = Boolean(variantResult.error && !missingColumn(variantResult.error))
     const optionLookupFailed = Boolean(optionValueResult.error && !missingColumn(optionValueResult.error))
-    if (variantLookupFailed || optionLookupFailed) return 'reference-check-failed'
-    if (variantResult.data?.length || optionValueResult.data?.length) return 'still-referenced'
+    if (galleryResult.error || variantLookupFailed || optionLookupFailed) return 'reference-check-failed'
+    if (galleryResult.data?.length || variantResult.data?.length || optionValueResult.data?.length) {
+      return 'still-referenced'
+    }
 
     const { error: storageError } = await supabase.storage.from('product-images').remove([imagePath])
     return storageError ? 'storage-delete-failed' : 'removed'
@@ -355,14 +358,11 @@ export default function AdminProductEdit() {
         setError('La photo a été supprimée, mais la nouvelle photo principale n’a pas pu être confirmée. Rechargez la galerie.')
       }
     }
-    const path = storageObjectPath(imageUrl, 'product-images')
-    if (path && path.startsWith(`${id}/`)) {
-      const { data: references, error: referenceError } = await supabase.from('product_images').select('id').eq('image_url', imageUrl).limit(1)
-      if (referenceError) setError('La photo a été retirée du produit, mais la vérification des références du fichier a échoué; le fichier a été conservé par sécurité.')
-      else if (!references?.length) {
-        const { error: storageError } = await supabase.storage.from('product-images').remove([path])
-        if (storageError) setError('La photo a été retirée du produit, mais son fichier reste dans le stockage et devra être nettoyé.')
-      }
+    const cleanupStatus = await cleanupUnreferencedProductImage(id, imageUrl)
+    if (cleanupStatus === 'reference-check-failed') {
+      setError('La photo a été retirée du produit, mais ses références n’ont pas pu être vérifiées. Le fichier a été conservé par sécurité.')
+    } else if (cleanupStatus === 'storage-delete-failed') {
+      setError('La photo a été retirée du produit, mais son fichier reste dans le stockage et devra être nettoyé.')
     }
     if (isPostHogEnabled) posthog.capture('product_image_deleted', { product_id: id, image_id: imageId })
     } catch {

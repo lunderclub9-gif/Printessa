@@ -187,6 +187,18 @@ first. No policies were dropped in production.
 
 ## Performance advisor findings
 
+A live table-count snapshot shows the current production workload is still small: 12 orders,
+12 order items, 2 custom requests, 12 owner notifications, 6 quote events, 0 pickup points and
+2 product-cost rows. The related tables occupy only tens to low hundreds of KiB. The advisor's
+14 missing-FK-index findings are valid schema observations, but adding all indexes immediately is
+not an urgent latency fix at this data volume. Prioritize `order_items(product_id, variant_id)`,
+`custom_requests(delivery_*)`, and notification/event foreign keys as those tables grow; validate
+existing index definitions and query plans before generating indexes. High sequential-scan counts
+on `custom_requests` currently concern a two-row table and should not be interpreted as a scale
+problem.
+
+
+
 | Finding | Count | Safe next step |
 |---|---:|---|
 | Foreign keys without covering indexes | 14 | Add indexes after checking existing indexes, query patterns, and write overhead. |

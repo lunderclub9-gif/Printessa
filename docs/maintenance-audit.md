@@ -131,9 +131,10 @@ or changing production data.
   leaving orphaned or ambiguous variants.
 - Deleting a gallery image, option, option value or variant checks gallery, variant and
   option-value records before removing its uploaded image; replacing an option/variant image uses
-  the same cross-table check. Shared files are preserved, missing optional image columns are
-  handled safely, and failed reference checks surface a warning rather than risking deletion of
-  shared media.
+  the same cross-table check. Product-wide deletion now checks all three image-reference tables
+  before removing any product-images object. Shared files are preserved, missing optional image
+  columns are handled safely, and failed reference checks surface a warning rather than risking
+  deletion of shared media.
 
 ## Migration deployment blockers
 

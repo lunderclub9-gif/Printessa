@@ -49,7 +49,8 @@ or changing production data.
   prevent submission while required destination data is unavailable.
 - Applied the same recoverable loading/retry pattern to checkout's wilaya, commune, pickup-point
   and delivery-quote lookups so a transient reference-data failure no longer silently leaves the
-  customer with empty delivery selectors.
+  customer with empty delivery selectors. Custom manufacturing estimates and checkout delivery
+  quotes also expose a direct retry action after an RPC/network failure.
 - Hardened the owner dashboard retry flow and settings load/save flow so network failures do not
   leave permanent loading states or silently replace existing settings with blank values.
 - Made owner sign-out continue even if the audit-event RPC is unavailable.

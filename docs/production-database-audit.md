@@ -237,6 +237,49 @@ to production during the audit.
 The production advisor counts describe the live database snapshot and must not be assumed to match
 the repository migration set while migration history is unresolved.
 
+## Draft forward-migration remediation (not executed)
+
+The following statements are a remediation outline only. Generate a proper new migration with the
+Supabase CLI, test it on an isolated database, verify all storefront/admin paths, and reconcile
+production migration history before applying anything. Do not paste this directly into the
+production SQL editor.
+
+```sql
+-- Internal price engine: keep postgres-owner execution for SECURITY DEFINER wrappers only.
+REVOKE EXECUTE ON FUNCTION public.manufacturing_calculate_full(text, numeric, numeric, integer, jsonb, boolean)
+  FROM PUBLIC, anon, authenticated;
+ALTER FUNCTION public.manufacturing_calculate_full(text, numeric, numeric, integer, jsonb, boolean)
+  SET search_path = pg_catalog, public;
+
+-- Sequence helper is called by create_guest_order() under its postgres owner context.
+REVOKE EXECUTE ON FUNCTION public.next_order_number()
+  FROM PUBLIC, anon, authenticated;
+REVOKE USAGE, SELECT, UPDATE ON SEQUENCE public.order_number_seq
+  FROM PUBLIC, anon, authenticated;
+REVOKE USAGE, SELECT, UPDATE ON SEQUENCE public.custom_request_seq
+  FROM PUBLIC, anon, authenticated;
+
+-- SELECT is already covered by each same-role FOR ALL owner policy.
+DROP POLICY IF EXISTS owner_read_communes ON public.communes;
+DROP POLICY IF EXISTS owner_read_delivery_rates ON public.delivery_rates;
+DROP POLICY IF EXISTS "Propriétaire lit les matières" ON public.manufacturing_materials;
+DROP POLICY IF EXISTS "Propriétaire lit la tarification" ON public.manufacturing_pricing;
+DROP POLICY IF EXISTS owner_read_pickup_points ON public.pickup_points;
+DROP POLICY IF EXISTS owner_read_product_option_values ON public.product_option_values;
+DROP POLICY IF EXISTS owner_read_product_options ON public.product_options;
+DROP POLICY IF EXISTS owner_read_product_variant_values ON public.product_variant_values;
+DROP POLICY IF EXISTS owner_read_product_variants ON public.product_variants;
+DROP POLICY IF EXISTS owner_read_store_settings ON public.store_settings;
+DROP POLICY IF EXISTS owner_read_wilayas ON public.wilayas;
+```
+
+Before accepting this remediation, test that guest dimension estimates, manual custom requests,
+guest checkout/order numbering, owner custom quotes, all owner table reads/writes, public material
+catalogue reads, and product/variant storefront reads still work. The public materials view needs
+its own coordinated column-grant + RLS + `security_invoker` migration, not a one-line view toggle.
+Storage upload abuse needs a server-verifiable upload-session/rate-limit design; the SQL above does
+not address it.
+
 ## Required verification before merge or deployment
 
 1. Reconcile the two remote migration-history versions with the repository and confirm which

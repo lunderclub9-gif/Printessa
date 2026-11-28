@@ -15,6 +15,34 @@ import { storageObjectPath, validateImage, validateModel } from '@/lib/media'
 import { buildVariantCombinations, getVariantIdsUsingOptionValues, variantCombinationKey } from '@/lib/product-variants'
 import posthog, { isPostHogEnabled } from '@/lib/posthog'
 
+type ProductImageCleanupStatus = 'removed' | 'still-referenced' | 'outside-product' | 'reference-check-failed' | 'storage-delete-failed'
+
+async function cleanupUnreferencedProductImage(
+  productId: string,
+  imageUrl: string
+): Promise<ProductImageCleanupStatus> {
+  const imagePath = storageObjectPath(imageUrl, 'product-images')
+  if (!imagePath?.startsWith(`${productId}/`)) return 'outside-product'
+
+  try {
+    const [variantResult, optionValueResult] = await Promise.all([
+      supabase.from('product_variants').select('id').eq('image_url', imageUrl).limit(1),
+      supabase.from('product_option_values').select('id').eq('image_url', imageUrl).limit(1),
+    ])
+    const missingColumn = (error: { message: string } | null) =>
+      Boolean(error && /image_url.*does not exist|could not find.*image_url.*column/i.test(error.message))
+    const variantLookupFailed = Boolean(variantResult.error && !missingColumn(variantResult.error))
+    const optionLookupFailed = Boolean(optionValueResult.error && !missingColumn(optionValueResult.error))
+    if (variantLookupFailed || optionLookupFailed) return 'reference-check-failed'
+    if (variantResult.data?.length || optionValueResult.data?.length) return 'still-referenced'
+
+    const { error: storageError } = await supabase.storage.from('product-images').remove([imagePath])
+    return storageError ? 'storage-delete-failed' : 'removed'
+  } catch {
+    return 'reference-check-failed'
+  }
+}
+
 export default function AdminProductEdit() {
   const confirmAction = useAdminConfirm()
   const { id } = useParams()

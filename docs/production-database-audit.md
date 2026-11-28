@@ -157,6 +157,34 @@ and `application/octet-stream` is currently allowed. The React magic-byte valida
 10-file submission check can both be bypassed by direct Storage API calls. Do not rely on either
 as the server-side security boundary. Do not delete the existing 10 objects during this audit.
 
+## Confirmed redundant owner SELECT policies
+
+A read-only comparison of `pg_policies` found 11 SELECT-only owner policies whose role set and
+`USING (is_owner())` predicate exactly duplicate an existing `FOR ALL` owner policy on the same
+table. PostgreSQL's `FOR ALL` policy already applies to SELECT, so these additional SELECT
+policies do not add access and contribute to the multiple-permissive-policy warnings:
+
+- `communes.owner_read_communes` (covered by `owner_write_communes`)
+- `delivery_rates.owner_read_delivery_rates` (covered by `owner_write_delivery_rates`)
+- `manufacturing_materials."Propriétaire lit les matières"` (covered by
+  `"Gestion des matières par la propriétaire"`)
+- `manufacturing_pricing."Propriétaire lit la tarification"` (covered by
+  `"Gestion de la tarification par la propriétaire"`)
+- `pickup_points.owner_read_pickup_points` (covered by `owner_write_pickup_points`)
+- `product_option_values.owner_read_product_option_values` (covered by
+  `owner_write_product_option_values`)
+- `product_options.owner_read_product_options` (covered by `owner_write_product_options`)
+- `product_variant_values.owner_read_product_variant_values` (covered by
+  `owner_write_product_variant_values`)
+- `product_variants.owner_read_product_variants` (covered by `owner_write_product_variants`)
+- `store_settings.owner_read_store_settings` (covered by `owner_write_store_settings`)
+- `wilayas.owner_read_wilayas` (covered by `owner_write_wilayas`)
+
+These are proven redundant for SELECT based on the live role sets and predicates. A forward
+migration can drop only these 11 SELECT-only policies while retaining the `FOR ALL` policies and
+all public/customer policies. Test owner reads/writes and public reads on an isolated database
+first. No policies were dropped in production.
+
 ## Performance advisor findings
 
 | Finding | Count | Safe next step |

@@ -151,9 +151,11 @@ registered file rows. These may be abandoned form uploads, but they have not bee
 they are production objects and their ownership/purpose has not been confirmed.
 
 A safe redesign needs server-verifiable upload sessions or another enforceable abuse control,
-with path binding, expiry, file-count/size checks, and a cleanup grace period. Do not rely only on
-the React validator or the 10-file submission check. Do not delete the existing 10 objects during
-this audit.
+with path binding, expiry, file-count/size checks, content validation, and a cleanup grace period.
+The Storage MIME allowlist is not content inspection: MIME headers can be chosen by the uploader,
+and `application/octet-stream` is currently allowed. The React magic-byte validator and the
+10-file submission check can both be bypassed by direct Storage API calls. Do not rely on either
+as the server-side security boundary. Do not delete the existing 10 objects during this audit.
 
 ## Performance advisor findings
 

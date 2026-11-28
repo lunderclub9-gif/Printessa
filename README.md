@@ -1,4 +1,4 @@
-# LUNDER'S 3D STUDIO
+# Printessa — client storefront copy
 
 French-only, DZD-only storefront and back office for a 3D-printing studio serving Algeria:
 catalog with 3D previews, guest cash-on-delivery checkout, Algerian delivery rates, custom
@@ -11,8 +11,14 @@ manufacturing requests with versioned quotes, and an owner-only admin area at `/
 ## Status
 
 The repository contains the storefront, owner back office, custom-manufacturing workflow and unit
-tests. The Supabase migrations have **not** been applied or verified against a live project; see the
-remaining validation limits at the bottom before any deployment.
+tests. This is a separate client copy based on the LUNDER starter; inherited LUNDER branding is
+still present in the public UI and must be replaced with the client's approved brand kit before
+delivery. No SQL migration was applied or changed during this maintenance audit.
+
+The inspected production Supabase project has schema drift: its migration history contains two
+versions absent from this repository, while live schema checks show some later workflow objects
+present and several repository additions absent. Do not run `db push` or deploy this branch until
+the history and live schema are reconciled.
 
 ## Architecture and trust boundaries
 
@@ -55,9 +61,14 @@ Every write that carries money, stock, privacy or status is only reachable throu
 | `handle_new_user()` | `SECURITY DEFINER` trigger | nobody | Creates the profile with `role = 'customer'` on signup |
 | `prevent_role_change()` | trigger | nobody | Rejects any role change coming from `authenticated` |
 
-With the sole exception of the sequence helper `next_order_number()`, each of these pins an explicit
-`search_path` (`public` for legacy functions; `pg_catalog, public` for new 012 functions) and has
-`EXECUTE` revoked from `PUBLIC`, granted only to the roles listed.
+**Important live-database exception:** the ACLs in the migration source are not a reliable
+description of current production grants. Read-only inspection confirmed that
+`manufacturing_calculate_full(...)` is directly executable by `anon` and `authenticated` and
+returns internal production-cost and margin details. The live `next_order_number()` function is
+also executable by API roles, and both roles have sequence privileges, allowing order-number
+sequence values to be consumed without creating orders. These are confirmed security/abuse
+findings, not intended customer features. They require a tested forward migration; no production
+grants were changed during this audit.
 
 ### Which boundary enforces what
 
@@ -104,8 +115,9 @@ With the sole exception of the sequence helper `next_order_number()`, each of th
   are capped, but there is no rate limit and abandoned uploads are not collected.
 - Owner sign-in/out is logged by the app calling `log_owner_event`; an API login that bypasses the app
   is not recorded. Real auth-event logging needs a server-side hook.
-- `next_order_number()` is executable by any role and can only consume sequence values — it reveals
-  nothing and merely creates gaps in the numbering.
+- `next_order_number()` is currently executable by API roles and can consume sequence values
+  without creating orders. This allows sequence burning; revoke direct API execution and sequence
+  privileges in a tested forward migration while preserving the owner-level checkout call path.
 - Authorisation is only as good as the policies: any new table needs RLS enabled and an owner policy,
   which is why every migration here does both explicitly.
 
@@ -142,10 +154,12 @@ secrets in that provider's secret store.
 ## Migrations — apply in timestamp order
 
 Supabase applies migration files by their leading timestamp, not by the human-readable
-sequence number in the filename. Apply all files below in this exact order on a fresh,
-isolated Supabase project. The numeric labels **015 and 016 are out of order** relative
-to their timestamps; do not rename already-applied migrations because Supabase records
-their version identifiers.
+sequence number in the filename. The numeric labels **015 and 016 are out of order** relative
+to their timestamps. In addition, migrations **014 and 016 share the exact same leading timestamp
+`20261122120000`**, which creates a duplicate migration version and blocks a normal CLI migration
+run. Keep all 20 historical files unchanged per the maintenance decision; do not apply this chain,
+rename, squash or mark versions as applied until the collision and live production history are
+reconciled on an isolated database.
 
 | Timestamp order | File | Purpose |
 |---:|---|---|
@@ -250,9 +264,10 @@ Open `/admin` manually — it is not linked from the storefront and must not be 
    englobante, du taux de remplissage (`effective_volume_percent`), de la densité de la matière
    (`density_g_cm3`) et de la vitesse d'impression (`print_speed_g_per_hour`). Le résultat est
    explicitement présenté comme une estimation non vérifiée, pas comme un devis ferme.
-3. Le client accepte l'estimation. Le formulaire de coordonnées et de livraison apparaît alors
-   seulement, et `create_custom_request` n'enregistre la demande qu'avec cette acceptation, les
-   coordonnées et la livraison complètes. Aucune commande n'est créée à cette étape.
+3. Si une estimation automatique est disponible, le client doit l'accepter avant de
+   poursuivre. S'il laisse les dimensions vides ou qu'aucune estimation n'est disponible, le
+   formulaire permet tout de même d'envoyer une demande manuelle avec ses coordonnées et sa
+   livraison. Aucune commande n'est créée à cette étape.
 4. Le propriétaire voit la demande complète, les fichiers, les dimensions, l'estimation et son
    détail interne, l'acceptation éventuelle du client et l'historique des devis. Il peut créer un
    devis depuis l'estimation, saisir un devis manuel ou un devis technique, puis l'envoyer.
@@ -274,10 +289,12 @@ pas supprimables par cette action.
 
 ## Known open items
 
-- **Database validation is pending.** Migrations have not been applied to a local/test or production
-  database in this task. The sandbox has no local PostgreSQL/Supabase CLI environment; migration 012
-  therefore still needs isolated-database validation before deployment. Do not apply it to production
-  without separate approval.
+- **Database validation and migration reconciliation are pending.** Production records two
+  migration versions absent from this repository and does not contain several later repository
+  columns (product SEO keywords, category SEO metadata, variant images and option-value images).
+  Some later workflow objects do exist, so this is partial schema drift, not a clean baseline.
+  Do not apply migrations or deploy until the exact history is reconciled and the full chain passes
+  on an isolated database.
 - **Automated coverage is partial.** `npm test` runs the Vitest unit suite; it does not exercise RLS,
   Postgres RPC transactions, Storage permissions, end-to-end customer flows or mobile layouts.
 - **Notification delivery needs end-to-end verification.** The repository contains an owner notification provider and notification center; verify persistence, realtime/fallback refresh, read state, and preference handling against an isolated Supabase project.
@@ -289,9 +306,11 @@ pas supprimables par cette action.
   there is no distinct manufacturing-in-progress status, so the dashboard does not invent one.
 - **No transactional email or SMS.** No order confirmation, quote notification or password reset is
   sent; guests must keep their tracking link. Password recovery is therefore hidden.
-- **Uploads:** the private custom-request bucket accepts anonymous inserts (guests must upload without
-  an account). Storage caps individual size and declared MIME, but there is no quota/rate limit or
-  server-side geometry parser; abandoned/partially uploaded files require cleanup.
+- **Uploads:** the private custom-request bucket accepts unrestricted anonymous inserts by bucket
+  ID alone. The UI's 10-file limit and client-side content sniffing can be bypassed by direct
+  Storage API calls. The live bucket contains 10 unreferenced objects older than seven days; they
+  were not deleted. Server-verifiable upload sessions, abuse controls and a cleanup grace period
+  are required before launch.
 - No license file is present; redistribution rights are unresolved.
 
 ## Migrations de fabrication sur mesure (008–012)

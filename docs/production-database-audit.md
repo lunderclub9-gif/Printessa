@@ -202,11 +202,12 @@ request, notification, material-cost and manufacturing-pricing workflows. The de
 and known limitations are recorded in `docs/maintenance-audit.md`.
 
 The latest fully successful CI run checked commit
-`b429c54c08ff7dc1c13b35ebe173d81777d89acd` and passed lint, typecheck, unit tests and production
-build. Its `npm ci` step reported zero vulnerabilities; the separate dependency report showed
-zero advisories at all severities. Documentation-only follow-up commit
-`3614ce493bb336fe5140b0947de74ddaf9117d6e` corrects stale audit wording and is awaiting its own
-CI run.
+`ab92c8f1b8fc719de42cb28655c923364d28e158` and passed lint, typecheck, unit tests and production
+build. Its `npm ci` step reported zero vulnerabilities; the dependency report confirmed zero
+info, low, moderate, high and critical advisories. The current branch head is
+`e845a0f1d6edf8cf7b26efcb888822f67c1754da`; it additionally upgrades GitHub Actions to Node.js
+24-compatible releases and makes zero npm advisories a blocking CI requirement. Its CI result is
+pending and must be checked before treating the latest head as verified.
 
 ## Additional source migration review finding
 

@@ -117,6 +117,11 @@ export default function AdminProductEdit() {
       if (requestId !== productLoadSequence.current) return
       setVariants((data as ProductVariant[]) ?? [])
       setVariantsLoadFailed(false)
+      setError((current) =>
+        current === 'Impossible de charger les variantes du produit. Rechargez-les avant de modifier les options.'
+          ? null
+          : current
+      )
     } catch {
       if (requestId === productLoadSequence.current) {
         setVariantsLoadFailed(true)

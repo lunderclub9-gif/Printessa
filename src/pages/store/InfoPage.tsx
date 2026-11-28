@@ -80,7 +80,7 @@ export default function InfoPage() {
         {settings.phone ? (
           <p className="flex items-center gap-2">
             <Phone className="h-4 w-4 text-brand-red" />
-            <a href={`tel:${settings.phone.replace(/\\s/g, '')}`} className="hover:text-offwhite">
+            <a href={`tel:${settings.phone.replace(/\s/g, '')}`} className="hover:text-offwhite">
               {settings.phone}
             </a>
           </p>

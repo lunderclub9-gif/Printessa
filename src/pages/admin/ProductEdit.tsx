@@ -417,8 +417,10 @@ export default function AdminProductEdit() {
   const deleteOption = async (optionId: string) => {
     if (!id) return
     const option = options.find((item) => item.id === optionId)
-    if (variantsLoadFailed) {
-      setError('Rechargez les variantes avant de supprimer une option afin de protéger les associations existantes.')
+    if (variantsLoadFailed || creatingVariants) {
+      setError(variantsLoadFailed
+        ? 'Rechargez les variantes avant de supprimer une option afin de protéger les associations existantes.'
+        : 'Attendez la fin de la création des variantes avant de supprimer une option.')
       return
     }
     const optionValueIds = (option?.values ?? []).map((value) => value.id)
@@ -549,8 +551,10 @@ export default function AdminProductEdit() {
   const deleteOptionValue = async (valueId: string) => {
     if (!id) return
     const value = options.flatMap((option) => option.values ?? []).find((item) => item.id === valueId)
-    if (variantsLoadFailed) {
-      setError('Rechargez les variantes avant de supprimer une valeur afin de protéger les associations existantes.')
+    if (variantsLoadFailed || creatingVariants) {
+      setError(variantsLoadFailed
+        ? 'Rechargez les variantes avant de supprimer une valeur afin de protéger les associations existantes.'
+        : 'Attendez la fin de la création des variantes avant de supprimer une valeur.')
       return
     }
     const affectedVariantIds = getVariantIdsUsingOptionValues(variants, [valueId])
@@ -877,6 +881,10 @@ export default function AdminProductEdit() {
 
   const deleteVariant = async (variantId: string) => {
     if (!id) return
+    if (creatingVariants) {
+      setError('Attendez la fin de la création des variantes avant de supprimer une variante.')
+      return
+    }
     const variant = variants.find((item) => item.id === variantId)
     if (!(await confirmAction({
       title: 'Supprimer cette variante ?',

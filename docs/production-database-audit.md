@@ -248,7 +248,7 @@ request, notification, material-cost and manufacturing-pricing workflows. The de
 and known limitations are recorded in `docs/maintenance-audit.md`.
 
 The latest fully successful CI run checked current branch head
-`30213169c6efcf1a56d759ab68b14198d6079a4a` and passed lint, typecheck, unit tests and production
+`e1865f49861174305502fccb9097d50a7e5da05e` and passed lint, typecheck, unit tests and production
 build. Its `npm ci` step reported zero vulnerabilities; the blocking dependency gate confirmed
 zero info, low, moderate, high and critical advisories. GitHub Actions now run on Node.js
 24-compatible releases, and the current branch head has been verified.

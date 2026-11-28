@@ -165,7 +165,7 @@ or changing production data.
 ## Dependency review — resolved on the current maintenance head
 
 - The current lockfile was updated through a separate compatible dependency-maintenance pass.
-  The latest successful scan on `30213169c6efcf1a56d759ab68b14198d6079a4a` completed `npm ci`
+  The latest successful scan on `e1865f49861174305502fccb9097d50a7e5da05e` completed `npm ci`
   and reported `found 0 vulnerabilities` (info, low, moderate, high and critical all zero).
 - GitHub Actions were upgraded from the Node.js 20 action runtime to Node.js 24-compatible
   releases. CI now fails if npm audit cannot return metadata or reports any vulnerability; the

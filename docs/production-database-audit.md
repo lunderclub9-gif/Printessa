@@ -263,7 +263,6 @@ REVOKE USAGE, SELECT, UPDATE ON SEQUENCE public.custom_request_seq
 REVOKE EXECUTE ON FUNCTION public.audit_row() FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION public.expire_previous_custom_quotes() FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION public.guard_custom_request_status() FROM PUBLIC, anon, authenticated;
-REVOKE EXECUTE ON FUNCTION public.set_order_item_variant_label() FROM PUBLIC, anon, authenticated;
 
 -- SELECT is already covered by each same-role FOR ALL owner policy.
 DROP POLICY IF EXISTS owner_read_communes ON public.communes;
@@ -278,6 +277,11 @@ DROP POLICY IF EXISTS owner_read_product_variants ON public.product_variants;
 DROP POLICY IF EXISTS owner_read_store_settings ON public.store_settings;
 DROP POLICY IF EXISTS owner_read_wilayas ON public.wilayas;
 ```
+
+Migration 019's `set_order_item_variant_label()` is currently absent from the live database.
+After the migration-history reconciliation confirms that 019 is applied, add a separate explicit
+revoke for that trigger function in the forward chain; do not include it in a migration that may
+run before the function exists.
 
 Before accepting this remediation, test that guest dimension estimates, manual custom requests,
 guest checkout/order numbering, owner custom quotes, all owner table reads/writes, public material

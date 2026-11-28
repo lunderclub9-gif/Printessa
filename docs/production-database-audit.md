@@ -259,6 +259,12 @@ REVOKE USAGE, SELECT, UPDATE ON SEQUENCE public.order_number_seq
 REVOKE USAGE, SELECT, UPDATE ON SEQUENCE public.custom_request_seq
   FROM PUBLIC, anon, authenticated;
 
+-- Trigger-only functions do not need direct API-role execution grants.
+REVOKE EXECUTE ON FUNCTION public.audit_row() FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.expire_previous_custom_quotes() FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.guard_custom_request_status() FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.set_order_item_variant_label() FROM PUBLIC, anon, authenticated;
+
 -- SELECT is already covered by each same-role FOR ALL owner policy.
 DROP POLICY IF EXISTS owner_read_communes ON public.communes;
 DROP POLICY IF EXISTS owner_read_delivery_rates ON public.delivery_rates;

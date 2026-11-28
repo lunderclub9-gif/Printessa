@@ -120,10 +120,16 @@ The `custom_request_seq` ACL also grants anon/authenticated sequence privileges 
 `create_custom_request()` owns the sequence call; remove those unnecessary direct privileges in
 the same tested forward migration. Keep the sequence objects and existing values intact.
 
+A follow-up live ACL/body check confirmed that all 10 owner-only RPCs above currently grant
+EXECUTE to both `anon` and `authenticated`. All 10 function bodies explicitly call
+`public.is_owner()` and raise `ACCES_REFUSE` when the caller is not the owner; no owner-check
+bypass was observed in these bodies. This is still unnecessarily broad exposure and should be
+corrected by revoking `PUBLIC` and `anon` while preserving `authenticated` for the owner UI.
+
 The owner-only checks are an important second layer, but they do not replace least-privilege
-EXECUTE grants. Revoke anonymous access from owner-only RPCs, and keep trigger/helper functions
-callable only by the database owner and their internal call paths. Trigger functions such as
-`audit_row()` and `guard_custom_request_status()` should not be exposed as direct API endpoints.
+EXECUTE grants. Keep trigger/helper functions callable only by the database owner and their
+internal call paths. Trigger functions such as `audit_row()` and `guard_custom_request_status()`
+should not be exposed as direct API endpoints.
 
 The three functions without a pinned `search_path` are:
 

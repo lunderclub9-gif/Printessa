@@ -129,10 +129,11 @@ or changing production data.
   it; if variant loading failed or a variant batch is still being created, deletion is blocked
   until the data is safe to change. This prevents cascading deletion of option-value links from
   leaving orphaned or ambiguous variants.
-- Deleting an option, option value or variant checks both variant and option-value records before
-  removing its uploaded image; replacing an option/variant image uses the same cross-table check.
-  Shared files are preserved, missing optional image columns are handled safely, and failed
-  reference checks surface a warning rather than risking deletion of shared media.
+- Deleting a gallery image, option, option value or variant checks gallery, variant and
+  option-value records before removing its uploaded image; replacing an option/variant image uses
+  the same cross-table check. Shared files are preserved, missing optional image columns are
+  handled safely, and failed reference checks surface a warning rather than risking deletion of
+  shared media.
 
 ## Migration deployment blockers
 

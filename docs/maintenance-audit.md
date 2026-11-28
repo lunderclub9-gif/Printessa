@@ -190,6 +190,10 @@ or changing production data.
   grants and sequence privileges can be tightened in a tested forward migration without removing
   guest checkout. No production grants were changed. See
   `docs/production-database-audit.md` for the exact ACL evidence and safe remediation plan.
+- Guest `create_guest_order` and `create_custom_request` RPCs are public and rely on idempotency
+  keys but have no attempt/rate limit or phone verification. New keys bypass idempotency, so fake
+  COD orders can reserve stock and custom requests can spam the owner queue. A server-verified
+  abuse-control design is required before public launch.
 - The private custom-request Storage bucket also permits unrestricted anonymous INSERTs by bucket
   ID alone. Its client-side 10-file limit is bypassable; a read-only inventory found 10 unreferenced
   objects older than seven days. They were not deleted. The upload flow needs server-verifiable

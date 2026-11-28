@@ -247,13 +247,11 @@ customer browse/cart/checkout/tracking/custom-request journeys and owner product
 request, notification, material-cost and manufacturing-pricing workflows. The detailed changes
 and known limitations are recorded in `docs/maintenance-audit.md`.
 
-The latest fully successful CI run checked commit
-`ab92c8f1b8fc719de42cb28655c923364d28e158` and passed lint, typecheck, unit tests and production
-build. Its `npm ci` step reported zero vulnerabilities; the dependency report confirmed zero
-info, low, moderate, high and critical advisories. The current branch head is
-`e845a0f1d6edf8cf7b26efcb888822f67c1754da`; it additionally upgrades GitHub Actions to Node.js
-24-compatible releases and makes zero npm advisories a blocking CI requirement. Its CI result is
-pending and must be checked before treating the latest head as verified.
+The latest fully successful CI run checked current branch head
+`30213169c6efcf1a56d759ab68b14198d6079a4a` and passed lint, typecheck, unit tests and production
+build. Its `npm ci` step reported zero vulnerabilities; the blocking dependency gate confirmed
+zero info, low, moderate, high and critical advisories. GitHub Actions now run on Node.js
+24-compatible releases, and the current branch head has been verified.
 
 ## Additional source migration review finding
 

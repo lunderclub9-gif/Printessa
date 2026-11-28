@@ -82,7 +82,13 @@ export default function AdminProducts() {
             supabase.from('product_variants').select('id').eq('image_url', publicUrl).limit(1),
             supabase.from('product_option_values').select('id').eq('image_url', publicUrl).limit(1),
           ])
-          if (galleryResult.error || variantResult.error || optionValueResult.error) {
+          const missingImageColumn = (error: { message: string } | null) =>
+            Boolean(error && /image_url.*does not exist|could not find.*image_url.*column/i.test(error.message))
+          if (
+            galleryResult.error ||
+            (variantResult.error && !missingImageColumn(variantResult.error)) ||
+            (optionValueResult.error && !missingImageColumn(optionValueResult.error))
+          ) {
             throw galleryResult.error || variantResult.error || optionValueResult.error
           }
           if (!galleryResult.data?.length && !variantResult.data?.length && !optionValueResult.data?.length) {

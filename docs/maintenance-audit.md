@@ -125,8 +125,9 @@ or changing production data.
   validates integer stock and price inputs, confirms destructive variant/value removal, and disables
   repeated variant-creation actions while a batch is running.
 - Deleting an option or option value is now blocked while any loaded variant references
-  it; if variant loading failed, deletion is blocked until the owner reloads the variants. This
-  prevents cascading deletion of option-value links from leaving orphaned or ambiguous variants.
+  it; if variant loading failed or a variant batch is still being created, deletion is blocked
+  until the data is safe to change. This prevents cascading deletion of option-value links from
+  leaving orphaned or ambiguous variants.
 - Deleting an option, option value or variant checks both variant and option-value records before
   removing its uploaded image; replacing an option/variant image uses the same cross-table check.
   Shared files are preserved, missing optional image columns are handled safely, and failed

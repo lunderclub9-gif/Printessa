@@ -108,6 +108,7 @@ export default function App() {
                 <Route path="couts-produits" element={<AdminProductCostMaterials />} />
                 <Route path="parametres" element={<AdminSettings />} />
                 <Route path="historique" element={<AdminHistory />} />
+                <Route path="*" element={<Navigate to="/admin/dashboard" replace />} />
               </Route>
               <Route path="/boutique" element={<StoreLayout />}>
                 <Route index element={<HomePage />} />
@@ -121,6 +122,7 @@ export default function App() {
                 <Route path="sur-mesure" element={<CustomRequestPage />} />
                 <Route path="sur-mesure/suivi" element={<CustomRequestStatusPage />} />
                 <Route path="informations" element={<InfoPage />} />
+                <Route path="*" element={<Navigate to="/boutique" replace />} />
               </Route>
               <Route path="/" element={<Navigate to="/boutique" replace />} />
               <Route path="*" element={<Navigate to="/boutique" replace />} />

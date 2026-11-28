@@ -135,6 +135,26 @@ The live view definition currently selects only `name`, `colors`, `is_available`
 `sort_order` from available manufacturing materials. Its `reloptions` are unset, so it is not
 configured as a security-invoker view. Confirm the intended public data contract before changing it.
 
+## Guest upload storage-abuse exposure
+
+The live private `custom-requests` bucket is limited to 25 MiB per object and an allowlist of
+MIME types, but the `guest_upload_custom_requests` Storage INSERT policy permits `anon` and
+`authenticated` to insert any object whose bucket is `custom-requests`. It does not constrain
+the path, associate uploads with a server-issued request session, or enforce a per-request/object
+count. The UI's 10-file limit and browser-side file validation can be bypassed by calling Storage
+directly. An unauthenticated client can therefore create many private orphan objects and consume
+the project's storage quota.
+
+A read-only inventory found 10 objects in this bucket (746,550 bytes total), all unreferenced by
+`custom_request_files` and all older than seven days; the database has 2 custom requests and 0
+registered file rows. These may be abandoned form uploads, but they have not been deleted because
+they are production objects and their ownership/purpose has not been confirmed.
+
+A safe redesign needs server-verifiable upload sessions or another enforceable abuse control,
+with path binding, expiry, file-count/size checks, and a cleanup grace period. Do not rely only on
+the React validator or the 10-file submission check. Do not delete the existing 10 objects during
+this audit.
+
 ## Performance advisor findings
 
 | Finding | Count | Safe next step |

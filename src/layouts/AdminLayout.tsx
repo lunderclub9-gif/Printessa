@@ -101,7 +101,7 @@ export default function AdminLayout() {
             </div>
             <span className={`text-xs font-bold tracking-wide text-offwhite ${sidebarCollapsed ? "md:hidden" : ""}`}>LUNDER'S 3D</span>
           </Link>
-          <button className="md:hidden" onClick={() => setSidebarOpen(false)} aria-label="Fermer">
+          <button type="button" className="md:hidden" onClick={() => setSidebarOpen(false)} aria-label="Fermer">
             <X className="h-5 w-5 text-charcoal-300" />
           </button>
           <button
@@ -137,7 +137,7 @@ export default function AdminLayout() {
         </nav>
 
         <div className="shrink-0 border-t border-charcoal-400/10 bg-charcoal-900 p-3">
-          <button
+          <button type="button"
             onClick={handleSignOut}
             className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-charcoal-300 transition-colors hover:bg-charcoal-800 hover:text-offwhite ${sidebarCollapsed ? "md:justify-center md:px-2" : ""}`} title={sidebarCollapsed ? "Déconnexion" : undefined}
           >
@@ -149,7 +149,7 @@ export default function AdminLayout() {
 
       <div className="flex flex-1 flex-col overflow-hidden">
         <header className="flex h-16 items-center justify-between border-b border-charcoal-400/10 bg-charcoal-900 px-4 md:px-6">
-          <button className="md:hidden" onClick={() => setSidebarOpen(true)} aria-label="Menu">
+          <button type="button" className="md:hidden" onClick={() => setSidebarOpen(true)} aria-label="Menu">
             <Menu className="h-6 w-6 text-charcoal-200" />
           </button>
           <span className="text-sm text-charcoal-400">Espace propriétaire</span>

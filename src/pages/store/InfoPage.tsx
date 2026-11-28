@@ -10,35 +10,77 @@ const SOCIAL_LABELS: Record<string, string> = {
   tiktok_url: 'TikTok',
 }
 
+function safeSocialUrl(value: string): string | null {
+  try {
+    const url = new URL(value)
+    return url.protocol === 'https:' || url.protocol === 'http:' ? url.toString() : null
+  } catch {
+    return null
+  }
+}
+
 export default function InfoPage() {
   const [settings, setSettings] = useState<Record<string, string>>({})
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [retry, setRetry] = useState(0)
 
   useEffect(() => {
-    supabase
-      .from('store_settings')
-      .select('key, value')
-      .eq('is_public', true)
-      .then(({ data }) => {
+    let active = true
+    const loadSettings = async () => {
+      setLoading(true)
+      setError(null)
+      try {
+        const { data, error: queryError } = await supabase
+          .from('store_settings')
+          .select('key, value')
+          .eq('is_public', true)
+        if (queryError) throw queryError
+
         const next: Record<string, string> = {}
         ;((data as Setting[]) ?? []).forEach((row) => {
           if (row.value) next[row.key] = row.value
         })
-        setSettings(next)
-      })
-  }, [])
+        if (active) setSettings(next)
+      } catch {
+        if (active) {
+          setSettings({})
+          setError('Impossible de charger les informations du studio. Vérifiez votre connexion puis réessayez.')
+        }
+      } finally {
+        if (active) setLoading(false)
+      }
+    }
+    void loadSettings()
+    return () => {
+      active = false
+    }
+  }, [retry])
 
-  const socials = Object.keys(SOCIAL_LABELS).filter((key) => settings[key])
+  const socials = Object.keys(SOCIAL_LABELS)
+    .map((key) => ({ key, label: SOCIAL_LABELS[key], url: safeSocialUrl(settings[key] ?? '') }))
+    .filter((social): social is { key: string; label: string; url: string } => Boolean(social.url))
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-10 sm:px-6">
       <h1 className="text-3xl font-bold text-offwhite">Informations</h1>
+
+      {error && (
+        <div role="alert" className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-brand-red/30 bg-brand-red/10 px-4 py-3 text-sm text-brand-red-light">
+          <span>{error}</span>
+          <button type="button" onClick={() => setRetry((value) => value + 1)} className="btn-secondary">
+            Réessayer
+          </button>
+        </div>
+      )}
+      {loading && <p role="status" className="mt-4 text-sm text-charcoal-400">Chargement des informations…</p>}
 
       <section className="admin-card mt-6 space-y-2 text-sm text-charcoal-300">
         <h2 className="mb-2 text-lg font-semibold text-offwhite">Nous contacter</h2>
         {settings.phone ? (
           <p className="flex items-center gap-2">
             <Phone className="h-4 w-4 text-brand-red" />
-            <a href={`tel:${settings.phone.replace(/\s/g, '')}`} className="hover:text-offwhite">
+            <a href={`tel:${settings.phone.replace(/\\s/g, '')}`} className="hover:text-offwhite">
               {settings.phone}
             </a>
           </p>
@@ -57,7 +99,7 @@ export default function InfoPage() {
             {settings.address}
           </p>
         ) : null}
-        {!settings.phone && !settings.email && !settings.address && (
+        {!loading && !error && !settings.phone && !settings.email && !settings.address && (
           <p className="text-charcoal-400">
             Les coordonnées du studio ne sont pas encore renseignées.
           </p>
@@ -65,15 +107,15 @@ export default function InfoPage() {
 
         {socials.length > 0 && (
           <div className="flex flex-wrap gap-3 pt-2">
-            {socials.map((key) => (
+            {socials.map((social) => (
               <a
-                key={key}
-                href={settings[key]}
+                key={social.key}
+                href={social.url}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-sm text-brand-red underline-offset-4 hover:underline"
               >
-                {SOCIAL_LABELS[key]}
+                {social.label}
               </a>
             ))}
           </div>

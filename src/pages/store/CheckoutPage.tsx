@@ -47,6 +47,7 @@ export default function CheckoutPage() {
   const [quote, setQuote] = useState<DeliveryQuote | null>(null)
   const [quoteLoading, setQuoteLoading] = useState(false)
   const [quoteError, setQuoteError] = useState<string | null>(null)
+  const [quoteRetry, setQuoteRetry] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
@@ -171,7 +172,7 @@ export default function CheckoutPage() {
     return () => {
       cancelled = true
     }
-  }, [wilayaCode, communeId, method, items.length])
+  }, [wilayaCode, communeId, method, items.length, quoteRetry])
 
   const total = useMemo(() => subtotal + (quote?.price_dzd ?? 0), [subtotal, quote])
 
@@ -447,7 +448,12 @@ export default function CheckoutPage() {
               {quoteLoading ? (
                 <p className="text-charcoal-400">Calcul des frais de livraison…</p>
               ) : quoteError ? (
-                <p className="text-brand-red-light">{quoteError}</p>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-brand-red-light">{quoteError}</p>
+                  <button type="button" onClick={() => setQuoteRetry((value) => value + 1)} className="btn-secondary">
+                    Réessayer
+                  </button>
+                </div>
               ) : quote ? (
                 <div className="flex items-center gap-2 text-charcoal-200">
                   <Truck className="h-4 w-4 text-brand-red" />

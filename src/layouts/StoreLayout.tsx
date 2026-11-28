@@ -156,7 +156,7 @@ export default function StoreLayout() {
             >
               <Search className="h-5 w-5" />
             </button>
-            <button
+            <button type="button"
               className="md:hidden"
               onClick={() => setMobileOpen(!mobileOpen)}
               aria-label="Menu"

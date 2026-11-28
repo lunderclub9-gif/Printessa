@@ -135,6 +135,22 @@ The live view definition currently selects only `name`, `colors`, `is_available`
 `sort_order` from available manufacturing materials. Its `reloptions` are unset, so it is not
 configured as a security-invoker view. Confirm the intended public data contract before changing it.
 
+## Guest order/request abuse exposure
+
+The live `create_guest_order(jsonb)` function is SECURITY DEFINER, owned by `postgres`, and
+callable by `anon`. Its idempotency key prevents duplicate retries only when the caller reuses
+the same key; a caller can generate a new key for every submission. The function validates phone
+format, address, delivery and stock, but has no attempt/rate limit or phone verification. A
+malicious caller can therefore create fake cash-on-delivery orders, reserve available stock, and
+generate owner notifications. The owner must then manually cancel those orders to restore stock.
+
+The public `create_custom_request(jsonb)` endpoint has the same new-key spam concern; its
+idempotency lock is not a rate limit. These endpoints need an abuse-control design before public
+launch (for example, a free CAPTCHA challenge verified server-side plus rate limits keyed by
+trusted request metadata and/or normalized phone). Do not add a naive global phone limit that
+could block legitimate shared-family numbers, and do not trust a client-supplied IP/header. No
+rate limits or CAPTCHA checks were added in this maintenance branch.
+
 ## Guest upload storage-abuse exposure
 
 The live private `custom-requests` bucket is limited to 25 MiB per object and an allowlist of

@@ -47,6 +47,9 @@ or changing production data.
 - Added loading, error and retry states for the custom-request page's materials, wilayas, communes
   and pickup-point lookups. Delivery fields now indicate when destination data is loading and
   prevent submission while required destination data is unavailable.
+- Applied the same recoverable loading/retry pattern to checkout's wilaya, commune, pickup-point
+  and delivery-quote lookups so a transient reference-data failure no longer silently leaves the
+  customer with empty delivery selectors.
 - Hardened the owner dashboard retry flow and settings load/save flow so network failures do not
   leave permanent loading states or silently replace existing settings with blank values.
 - Made owner sign-out continue even if the audit-event RPC is unavailable.
